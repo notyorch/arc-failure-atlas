@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arc-failure-atlas"
+version = "0.0.0"
+description = "ARC-AGI failure analysis pipeline"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = []
+
+[tool.setuptools]
+package-dir = {"" = "src"}
