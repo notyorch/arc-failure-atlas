@@ -2,14 +2,14 @@ import json
 import numpy as np
 import pandas as pd
 
-# --- CAJA 1: INGESTA ---
+# Ingesta de los datos del JSON
 def extraer_datos_json(ruta_archivo):
     """Abre el JSON y lo convierte en un diccionario."""
     print(f"-> Leyendo el archivo: {ruta_archivo}")
     with open(ruta_archivo, 'r') as archivo:
         return json.load(archivo)
 
-# --- CAJA 2: TRANSFORMACIÓN ---
+# Transformación de las matrices a filas
 def transformar_grids_a_filas(tarea_json, id_tarea):
     """Aplana las matrices y arma la estructura de la tabla."""
     print("-> Transformando matrices a formato tabular...")
@@ -34,17 +34,17 @@ def transformar_grids_a_filas(tarea_json, id_tarea):
     
     return pd.DataFrame(filas_datos)
 
-# --- CAJA 3: ALMACENAMIENTO ---
+# Almacenamiento de la tabla en un archivo .parquet
 def guardar_como_parquet(dataframe, ruta_salida):
     """Guarda la tabla final en un archivo .parquet ultraligero."""
     print(f"-> Guardando base de datos en: {ruta_salida}")
     dataframe.to_parquet(ruta_salida, engine='pyarrow')
-    print("✅ ¡Pipeline ejecutado con éxito!")
+    print("¡Pipeline ejecutado con éxito!")
 
-# --- EL ORQUESTADOR PRINCIPAL ---
+# Orquestador principal
 # Este bloque solo se ejecuta si corres este archivo directamente
 if __name__ == "__main__":
-    print("🚀 INICIANDO ETL DE ARC-AGI...")
+    print("INICIANDO ETL DE ARC-AGI...")
     
     # 1. Definimos las rutas
     archivo_entrada = 'dummy_task.json'
