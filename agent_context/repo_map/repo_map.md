@@ -13,7 +13,6 @@
 ## Source Tree
 - `src/main.py`: base ETL implementation (pipeline version `1.1.0`). Reads ARC-AGI JSON tasks from a folder, validates grids, transforms to long-format rows, enforces a frozen Parquet schema, and writes Hive-partitioned output.
 - `src/DECISIONS.md`: technical decision log for the ETL (schema types, partitioning, reproducibility, quality logging). Authoritative companion to `main.py`.
-- `src/SESION_2026-06-29.md`: session notes from the June 29, 2026 ETL sprint (working context, not a permanent spec).
 
 ## Notebooks
 - `notebooks/inference_input_reader.py`: reference snippet for loading the partitioned Parquet dataset and reconstructing task structures for prompt building.
