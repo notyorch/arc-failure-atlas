@@ -1,35 +1,47 @@
 # Current Priorities
 
-## Priority 1: Stabilize the ingestion path
-Current code is a single script that reads a JSON task and writes Parquet. The next step is to split that logic into importable functions and a usable CLI entrypoint.
+## Completed (base ETL slice — June 2026)
+- Batch folder ingestion (`process_folder`) with per-file error tolerance.
+- Grid validation with train/test conditional rules and dual error output (text log + Parquet).
+- Frozen tasks Parquet schema (`TASKS_PARQUET_SCHEMA`) enforced before write.
+- Hive partitioning by `split` → `task_id`.
+- `source_path` traceability with POSIX-normalized repo-relative paths.
+- Bit-reproducible `ingested_at` from source file mtime.
+- Technical decisions documented in `src/DECISIONS.md`.
+- Inference input reader snippet in `notebooks/inference_input_reader.py`.
 
-## Priority 2: Define and enforce schemas
-The project needs formal contracts for raw tasks, normalized rows, inference outputs, and failure labels. Without schemas, reproducibility and analysis will drift.
+## Priority 1: Scale ingestion to full evaluation set
+Populate `data/raw/evaluation/` with all ~400 ARC-AGI evaluation tasks and run the ETL end to end. Confirm output volume, partition layout, and quality logs at scale.
 
-## Priority 3: Establish validation and error handling
-The current script does not validate input structure or handle malformed tasks. Validation should cover JSON shape, grid consistency, and expected ARC splits.
+## Priority 2: Package structure and CLI
+Split `src/main.py` into importable modules and expose a CLI entrypoint. Keep the frozen schema guard and partitioning behavior unchanged during the refactor.
 
-## Priority 4: Create Parquet output conventions
-The project goal depends on Parquet as a stable analysis layer. The team needs a documented layout for output files, partitions, and naming.
+## Priority 3: Inference results schema
+Define and enforce the inference output Parquet schema (model, prompt version, prediction, latency, cost, status). Document it in `schema_contracts.md` and `src/DECISIONS.md`.
 
-## Priority 5: Add observability and run metadata
-Inference and batch execution need latency, retry, cost, and run identifiers. These should be captured from the first real experiments.
+## Priority 4: First inference runs
+Connect one or more model providers. Use `notebooks/inference_input_reader.py` (or its extracted module) to build prompts from normalized tasks.
+
+## Priority 5: Tests and fixtures
+Add unit tests for JSON parsing, grid validation, schema guard, and partitioning. Include representative ARC task fixtures (valid train/test, missing test output, malformed grids).
 
 ## Priority 6: Version prompts and evaluation sets
 The `prompts/` tree exists as scaffolding, but there is no versioned prompt registry yet. That work is required before model comparison becomes reliable.
 
-## Priority 7: Add tests and fixtures
-There are no tests in the repository today. The project needs unit tests for JSON parsing, normalization, and schema checks, plus fixtures for representative ARC tasks.
+## Priority 7: Failure taxonomy
+Implement the failure labeling schema and initial category set for comparative analysis across models.
 
 ## Current Bottlenecks
 - No package structure with importable modules and package initializers.
 - No centralized configuration for models or environments.
 - No documented taxonomy implementation.
-- No analysis notebooks or reporting assets yet.
+- No inference orchestration code yet.
 
 ## Near-Term Outcome
-The repository should reach a state where a developer or CLI agent can ingest one ARC task, validate it, transform it, write Parquet, and trace the run end to end.
+The repository should reach a state where a developer or CLI agent can run inference on normalized ARC tasks, persist results in a documented Parquet schema, and trace every prediction back to its source task and prompt version.
 
-## Exit Criteria for This Slice
-- One representative ARC JSON task can be processed end to end without manual file edits.
-- The output Parquet file follows a documented schema and can be traced back to its input and run context.
+## Exit Criteria for Next Slice (inference)
+- Normalized tasks Parquet loaded for all evaluation tasks.
+- At least one model provider connected with retry and latency capture.
+- Inference results written to a documented, validated Parquet schema.
+- Each result row traceable to `task_id`, `source_path`, model, and prompt version.
