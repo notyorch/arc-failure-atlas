@@ -1,5 +1,7 @@
 # Current Priorities
 
+**Last updated:** July 15, 2026
+
 ## Completed (base ETL slice — June 2026)
 - Batch folder ingestion (`process_folder`) with per-file error tolerance.
 - Grid validation with train/test conditional rules and dual error output (text log + Parquet).
@@ -10,38 +12,40 @@
 - Technical decisions documented in `src/DECISIONS.md`.
 - Inference input reader snippet in `notebooks/inference_input_reader.py`.
 
-## Priority 1: Scale ingestion to full evaluation set
-Populate `data/raw/evaluation/` with all ~400 ARC-AGI evaluation tasks and run the ETL end to end. Confirm output volume, partition layout, and quality logs at scale.
+## Completed (evaluation MVP slice — July 2026)
+- Data bootstrap: `scripts/fetch_arc_data.py` (GitHub download with `--limit`, offline `--sample` fixtures under `tests/fixtures/sample_tasks/`).
+- Inference results schema frozen and enforced (`INFERENCE_PARQUET_SCHEMA` in `src/contracts.py`, 28 columns) — closes former Priority 3.
+- Provider abstraction: deterministic offline `mock`, optional `openai` / `ollama` via stdlib HTTP with latency + cost-estimate capture and one retry — closes former Priority 4.
+- Versioned prompt (`arc_grid_v1` in `src/prompt_builder.py`) recorded on every row.
+- Response grid parsing/validation (`src/grid_parser.py`), scoring (`src/evaluator.py`), failure taxonomy v1 (`src/failure_taxonomy.py`) — closes former Priority 7 (v1 scope).
+- Batch runner `src/run_inference.py` (incremental flushes, per-task error tolerance, dry-run).
+- Analytics layer `src/build_analytics.py` (fact + 3 summary tables) and generated `reports/mvp_report.md`.
+- Docs updated: README, DECISIONS 8–12, schema contracts, `.env.example`, Makefile.
 
-## Priority 2: Package structure and CLI
-Split `src/main.py` into importable modules and expose a CLI entrypoint. Keep the frozen schema guard and partitioning behavior unchanged during the refactor.
+## Priority 1: Scale to the full evaluation set
+Run `scripts/fetch_arc_data.py` (no `--limit`) for all ~400 evaluation tasks, then ETL + a full mock run. Confirm volume, partition layout, latency of `build_analytics.py`, and report readability at scale.
 
-## Priority 3: Inference results schema
-Define and enforce the inference output Parquet schema (model, prompt version, prediction, latency, cost, status). Document it in `schema_contracts.md` and `src/DECISIONS.md`.
+## Priority 2: Real-provider evaluation runs
+Execute batches against OpenAI and/or Ollama with credentials, compare against the mock run in `summary_by_model`, and sanity-check cost estimates against actual billing.
 
-## Priority 4: First inference runs
-Connect one or more model providers. Use `notebooks/inference_input_reader.py` (or its extracted module) to build prompts from normalized tasks.
+## Priority 3: Automated tests
+Turn the existing smoke checks into pytest cases using `tests/fixtures/sample_tasks/`: grid_parser edge cases, evaluator metrics, taxonomy ordering, schema guards, runner end-to-end with the mock provider.
 
-## Priority 5: Tests and fixtures
-Add unit tests for JSON parsing, grid validation, schema guard, and partitioning. Include representative ARC task fixtures (valid train/test, missing test output, malformed grids).
+## Priority 4: Package structure and CLI polish
+Split `src/` into an importable package with `__init__.py` and console entry points. Keep frozen schema guards and partitioning behavior unchanged.
 
-## Priority 6: Version prompts and evaluation sets
-The `prompts/` tree exists as scaffolding, but there is no versioned prompt registry yet. That work is required before model comparison becomes reliable.
+## Priority 5: Taxonomy v2 and transformation_type labeling
+Refine spatial/symbol heuristics (topological, quantitative categories) and start filling the `transformation_type` column on tasks for accuracy-by-transformation analysis.
 
-## Priority 7: Failure taxonomy
-Implement the failure labeling schema and initial category set for comparative analysis across models.
+## Priority 6: Versioned prompt registry
+Move beyond the single `PROMPT_VERSION` constant: a `prompts/` registry with one file per version and metadata linking prompt → runs.
 
 ## Current Bottlenecks
-- No package structure with importable modules and package initializers.
-- No centralized configuration for models or environments.
-- No documented taxonomy implementation.
-- No inference orchestration code yet.
+- No automated test suite (manual smoke verification only).
+- No centralized model/provider configuration (env vars only).
+- Mock provider dominates available results until real-provider runs are executed.
 
-## Near-Term Outcome
-The repository should reach a state where a developer or CLI agent can run inference on normalized ARC tasks, persist results in a documented Parquet schema, and trace every prediction back to its source task and prompt version.
-
-## Exit Criteria for Next Slice (inference)
-- Normalized tasks Parquet loaded for all evaluation tasks.
-- At least one model provider connected with retry and latency capture.
-- Inference results written to a documented, validated Parquet schema.
-- Each result row traceable to `task_id`, `source_path`, model, and prompt version.
+## Exit Criteria for Next Slice
+- Full 400-task evaluation Parquet generated and ETL quality logs reviewed.
+- At least one real-provider run persisted and compared against mock in the report.
+- Pytest suite covering parser, evaluator, taxonomy, and schema guards in CI-runnable form.

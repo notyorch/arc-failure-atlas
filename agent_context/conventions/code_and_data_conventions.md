@@ -15,12 +15,18 @@ The base ETL in `src/main.py` implements most ingestion conventions. Remaining g
 - Stores `source_path` as a repo-relative POSIX path for cross-platform portability.
 - Sets `ingested_at` from the source JSON file's mtime for bit-reproducible output.
 
+### Implemented since July 2026 (evaluation MVP slice)
+- Inference runner (`src/run_inference.py`) with provider abstraction (`src/providers.py`: mock/openai/ollama).
+- Frozen inference results schema in `src/contracts.py`, enforced before every write.
+- Response parsing (`src/grid_parser.py`), scoring (`src/evaluator.py`), failure taxonomy v1 (`src/failure_taxonomy.py`).
+- Analytics tables + report generation (`src/build_analytics.py` → `data/parquet/analytics/`, `reports/mvp_report.md`).
+- Data bootstrap script (`scripts/fetch_arc_data.py`, offline `--sample` mode).
+
 ### Current limitations
-- Single-file module; not yet split into importable subpackages.
-- No CLI wrapper; run with `python src/main.py` from the repository root.
+- Flat `src/` modules (no package initializers); scripts import siblings and run from the repository root.
 - Error Parquet schema is not guarded by the frozen schema constant.
-- No inference, orchestration, or taxonomy modules yet.
-- No automated tests or fixtures.
+- No automated test suite yet (sample-task fixtures exist under `tests/fixtures/sample_tasks/`).
+- No orchestration layer (runs are manual CLI invocations).
 
 ## Code Conventions
 - Keep pipeline code inside `src/` until a package layout is formally adopted.
@@ -55,7 +61,7 @@ The base ETL in `src/main.py` implements most ingestion conventions. Remaining g
 - Grid validation failures: `arc.quality` logger → `logs/quality_<timestamp>.log` (human inspection).
 - Grid validation failures: error Parquet → `data/parquet/evaluation_errors/` (programmatic analysis).
 - Pipeline operational logs (INFO): console via root logger.
-- Inference observability (latency, cost, retries) is not yet implemented.
+- Inference observability: `latency_ms`, `cost_estimate_usd`, `status`, `error_message`, and timestamps captured on every inference row; per-task INFO logs during runs.
 
 ## Reproducibility Conventions
 - `ingested_at` is derived from source file mtime, not wall-clock ETL time.

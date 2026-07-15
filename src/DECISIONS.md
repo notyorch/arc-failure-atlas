@@ -359,11 +359,204 @@ human inspection; the Parquet table is for programmatic analysis.
 
 ---
 
-## Deferred Fields (next sprint)
+## Decision 8 — Provider abstraction with stdlib HTTP (no SDKs)
 
-The following fields were identified as necessary for the model inference
-module, but fall outside the scope of the base ETL.
-They are documented here so the schema contemplates them from the design phase:
+**Date:** July 15, 2026
+**Module:** `src/providers.py`
+
+### Context
+
+The inference sprint needs at least one real provider (OpenAI-compatible,
+Ollama) plus a way to run the full pipeline with no credentials. Adding
+vendor SDKs would grow `requirements.txt` and couple the repo to SDK release
+cycles for what is, in practice, a single POST request per task.
+
+### Considered Alternatives
+
+| Alternative | Description | Discarded because... |
+| --- | --- | --- |
+| Official `openai` SDK | Rich client with retries/streaming | New dependency for one endpoint; optional-import branches complicate the "fail gracefully" requirement |
+| LangChain / LiteLLM | Multi-provider abstraction | Framework weight vastly exceeds MVP needs; non-goal per project brief |
+| `requests` | Simpler HTTP than urllib | Still a new dependency; stdlib `urllib` is sufficient for JSON POST |
+
+### Adopted Decision: `BaseProvider` + three implementations over `urllib`
+
+- `ProviderResponse` dataclass: `response_text`, `status` (`ok`/`error`),
+  `error_message`, `latency_ms`, `cost_estimate_usd`, `raw`.
+- Construction fails fast with a clear message when configuration is absent
+  (`OPENAI_API_KEY` missing, Ollama server unreachable) and always suggests
+  `--provider mock` as the offline fallback.
+- Per-call failures return `status="error"` instead of raising, so one bad
+  call never aborts a batch; a single retry with backoff covers transient
+  HTTP 429/5xx.
+- Cost is **estimated** from returned token usage against a static price
+  table (`OPENAI_PRICES_PER_MTOK`); unknown models report 0.0. This is a
+  reporting aid, not billing data.
+- The `context` argument of `generate()` exists only for the mock provider;
+  real providers must ignore it so ground truth can never leak into a real
+  model call.
+
+---
+
+## Decision 9 — Mock-first reproducibility
+
+**Date:** July 15, 2026
+**Module:** `src/providers.py` (`MockProvider`)
+
+### Context
+
+The MVP must be demonstrable end to end with no API keys and no network,
+and the demo must exercise *every* downstream code path (scoring, parsing
+failures, provider failures) deterministically.
+
+### Adopted Decision: hash-bucketed deterministic behaviors
+
+`MockProvider` picks one of 10 behaviors per task via
+`md5(f"{model_name}:{task_id}") % 10`: identity echo (20%), oracle echo of
+the expected grid, horizontal flip, recolor, wrong-shape grid, prose without
+JSON, empty reply, fenced JSON with prose, and a simulated provider outage.
+
+Properties:
+
+- **Task-stable:** a given (model, task) pair always behaves the same,
+  regardless of `--limit` or which other tasks run alongside it.
+- **Coverage:** across a batch of ~20+ tasks, all failure modes and parse
+  paths appear, so the report shows the full taxonomy.
+- **Synthetic latency** (no `sleep`, no wall-clock noise) keeps run metrics
+  reproducible bit for bit.
+- Different mock `--model` names produce different (still deterministic)
+  behavior assignments, which makes `summary_by_model` a real comparison in
+  demos.
+
+The oracle bucket reads the expected output from the runner-provided
+context. This is intentional and documented: the mock is a **pipeline
+testing tool**, not a baseline, and the exact-match path must be exercised.
+
+---
+
+## Decision 10 — Inference results schema and storage layout
+
+**Date:** July 15, 2026
+**Modules:** `src/contracts.py`, `src/run_inference.py`
+
+### Context
+
+Inference results need their own frozen schema (Decision 5 covers only the
+tasks Parquet) and a storage layout that accumulates runs safely and reads
+back as one dataset.
+
+### Adopted Decision: 28-column frozen schema in `contracts.py`
+
+- `INFERENCE_PARQUET_SCHEMA` lives in `src/contracts.py` (not `main.py`)
+  so the frozen ETL module is never touched. The same strict guard style
+  (`validate_columns`) runs before every write.
+- One row per `(run_id, task_id, test_example_id)`. Groups: run identity
+  (`run_id`, `experiment_id`, `provider`, `model_name`, `prompt_version`,
+  `pipeline_version`), task lineage (`task_id`, `split`, `test_example_id`,
+  `source_task_partition`), payloads (`prompt_text`, `response_text`,
+  `predicted_grid_json`, `expected_output_grid_json`), provider outcome
+  (`status`, `error_message`, `latency_ms`, `cost_estimate_usd`,
+  `started_at`, `finished_at`), parsing (`parse_status`, `parse_error`),
+  evaluation (`is_exact_match`, `same_shape`, `cell_accuracy`,
+  `n_diff_cells`), taxonomy (`failure_mode`, `failure_detail`).
+- Evaluation columns are **NULL, never 0**, when no valid prediction or no
+  ground truth exists — failed parses must not deflate averages silently.
+- Explicit pandas dtypes (`boolean`, `Int64`, `Float64`, `string`) are
+  applied before every write so all-NULL columns in one chunk cannot drift
+  the Arrow schema between part files.
+
+### Storage layout: plain per-run directories, incremental part files
+
+```
+data/parquet/inference/runs/<run_id>/part-0000.parquet
+```
+
+- Rows are flushed every 10 items and on interruption (`finally`), so
+  partial progress is never lost.
+- Directory names are deliberately **not** Hive-style (`run_id=<id>`): a
+  Hive key would conflict with the physical `run_id` column when PyArrow
+  merges the tree (partition dictionary type vs column string type). Keeping
+  `run_id` as a physical column makes every part file self-contained and the
+  whole `runs/` tree readable as one dataset.
+- The analytics layer (`data/parquet/analytics/fact_inference_results/`)
+  does use Hive partitioning (`provider`/`model_name`) because pandas'
+  `partition_cols` moves those columns into the path on write and restores
+  them on read — no duplication, standard behavior, and it is a fully
+  derived table that `build_analytics.py` rebuilds from scratch each time.
+
+---
+
+## Decision 11 — Failure taxonomy v1
+
+**Date:** July 15, 2026
+**Module:** `src/failure_taxonomy.py`
+
+### Context
+
+The project's core deliverable is characterizing *how* models fail, not just
+whether they fail. The MVP needs a deterministic, reproducible first
+taxonomy that can be recomputed from stored rows alone.
+
+### Adopted Decision: ordered heuristic rules, one label per row
+
+First matching rule wins:
+
+1. provider `status != ok` → `api_error`
+2. empty response text → `empty_response`
+3. no valid grid extractable → `parse_error`
+4. no ground truth → `NULL` (row is not classifiable)
+5. exact match → `exact_match`
+6. shape mismatch → `shape_error`
+7. same shape **and same color histogram** → `spatial_error`
+   (right pieces, wrong places)
+8. same shape, different histogram → `symbol_error` (wrong colors)
+9. fallback → `unknown_error` (defensive; unreachable in practice)
+
+`exact_match` is part of the vocabulary so the distribution over all rows
+sums to 100%. The histogram heuristic is intentionally simple and
+documented as v1; spatial/topological/quantitative refinements are future
+work and belong in `failure_detail` extensions, not silent redefinitions of
+v1 labels.
+
+---
+
+## Decision 12 — Scoring definitions
+
+**Date:** July 15, 2026
+**Module:** `src/evaluator.py`
+
+### Context
+
+"Accuracy" on ARC needs precise cell-level definitions or numbers become
+incomparable across runs and models.
+
+### Adopted Decision
+
+| Metric | Definition |
+| --- | --- |
+| `is_exact_match` | Same shape AND every cell equal |
+| `same_shape` | Identical `(rows, cols)` |
+| `cell_accuracy` (same shape) | matching cells / total cells |
+| `cell_accuracy` (different shape) | matching cells in the top-left overlap / **max**(predicted cells, expected cells) — both missing and extra area penalized |
+| `n_diff_cells` | denominator − matching cells |
+| `exact_match_rate` (aggregates) | exact matches / **all** rows of the group — API and parse failures count against accuracy |
+| `avg_cell_accuracy` (aggregates) | mean over rows with a valid prediction and ground truth only (NULLs excluded, never imputed) |
+
+When there is no valid prediction or no ground truth, all row-level metrics
+are NULL (see Decision 10). Aggregation lives in
+`src/build_analytics.py::aggregate()` and is identical for every summary
+table.
+
+---
+
+## Deferred Fields (historical note)
+
+> **Superseded on July 15, 2026:** the inference sprint implemented these
+> fields with English names in `INFERENCE_PARQUET_SCHEMA`
+> (`src/contracts.py`): `model_name`, `prompt_version`, `latency_ms`,
+> `cost_estimate_usd`, `is_exact_match`. `attempt`/`task_version` remain
+> unimplemented (single-attempt runs; benchmark version pinned to
+> ARC-AGI-1 master).
 
 | Field | Purpose |
 | --- | --- |

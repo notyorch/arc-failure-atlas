@@ -1,8 +1,8 @@
 # Schema Contracts
 
-**Last updated:** June 30, 2026  
+**Last updated:** July 15, 2026  
 **Pipeline version:** 1.1.0  
-**Code source of truth:** `TASKS_PARQUET_SCHEMA` in `src/main.py`
+**Code source of truth:** `TASKS_PARQUET_SCHEMA` in `src/main.py` · `INFERENCE_PARQUET_SCHEMA` in `src/contracts.py`
 
 ## Current State
 The base ETL (`src/main.py`) enforces a **frozen tasks Parquet schema** declared as `TASKS_PARQUET_SCHEMA` and validated by `validate_output_schema()` before any write to disk. Column additions, removals, or renames require team approval and updates to this file, `TASKS_PARQUET_SCHEMA`, and `src/DECISIONS.md`.
@@ -69,7 +69,7 @@ The error schema is **not** validated by `TASKS_PARQUET_SCHEMA` (separate shape 
 - `source_path` uses forward slashes regardless of host OS.
 - Batch ingestion continues when individual files fail (malformed JSON, etc.).
 
-## PROPUESTO: Schemas Not Yet Implemented
+## Additional Schemas
 
 ### 1. Raw Task Schema
 Source: ARC-AGI JSON task files.
@@ -82,38 +82,47 @@ Expected content:
 
 *Status: consumed directly by the ETL; no separate raw-layer Parquet yet.*
 
-### 2. Inference Result Schema
-One row per model prediction.
-Recommended fields:
-- `run_id`
-- `task_id`
-- `split`
-- `example_index`
-- `model_name`
-- `prompt_version`
-- `prediction`
-- `latency_ms`
-- `retry_count`
-- `cost_usd`
-- `status`
-- `error_type`
-- `created_at`
+### 2. Inference Result Schema — IMPLEMENTED July 15, 2026
 
-*Status: proposed. Deferred fields documented in `src/main.py` and `src/DECISIONS.md`.*
+**Source of truth:** `INFERENCE_PARQUET_SCHEMA` in `src/contracts.py` (frozen, 28 columns).
+One row per `(run_id, task_id, test_example_id)`, written to
+`data/parquet/inference/runs/<run_id>/part-NNNN.parquet` (plain directory
+names, not Hive — `run_id` stays a physical column; see `src/DECISIONS.md`
+Decision 10). Enforced by `contracts.validate_columns()` before every write.
 
-### 3. Failure Taxonomy Schema
-One row per labeled failure.
-Recommended fields:
-- `run_id`
-- `task_id`
-- `model_name`
-- `failure_category`
-- `failure_subcategory`
-- `evidence`
-- `labeler`
-- `labeled_at`
+Column groups:
 
-*Status: proposed.*
+| Group | Columns |
+| --- | --- |
+| Run identity | `run_id`, `experiment_id`, `provider`, `model_name`, `prompt_version`, `pipeline_version` |
+| Task lineage | `task_id`, `split`, `test_example_id`, `source_task_partition` |
+| Payloads | `prompt_text`, `response_text`, `predicted_grid_json`, `expected_output_grid_json` |
+| Provider outcome | `status` (`ok`/`error`), `error_message`, `latency_ms`, `cost_estimate_usd`, `started_at`, `finished_at` |
+| Parsing | `parse_status` (`ok`/`empty_response`/`no_json_array`/`invalid_grid`/`not_attempted`), `parse_error` |
+| Evaluation | `is_exact_match`, `same_shape`, `cell_accuracy`, `n_diff_cells` (NULL when not evaluable — never 0) |
+| Taxonomy | `failure_mode`, `failure_detail` |
+
+### 3. Failure Taxonomy — IMPLEMENTED July 15, 2026 (v1, embedded)
+
+Implemented as the `failure_mode` / `failure_detail` columns of the
+inference schema (not a separate table): one deterministic label per row
+from `src/failure_taxonomy.py` — `exact_match`, `api_error`,
+`empty_response`, `parse_error`, `shape_error`, `spatial_error`,
+`symbol_error`, `unknown_error`; NULL when a valid prediction has no ground
+truth. Rule ordering and heuristics: `src/DECISIONS.md` Decision 11.
+A separate human-labeled taxonomy table (labeler, evidence, subcategory)
+remains future work.
+
+### 4. Analytics Summary Tables — IMPLEMENTED July 15, 2026
+
+Derived layer, fully rebuilt by `src/build_analytics.py` under
+`data/parquet/analytics/`: `fact_inference_results/` (Hive-partitioned by
+`provider`/`model_name`), `summary_by_model/`, `summary_by_failure_mode/`,
+`summary_by_task/`. Every summary carries at least
+`ANALYTICS_METRIC_COLUMNS` (`src/contracts.py`): `total_runs`,
+`exact_match_rate`, `avg_cell_accuracy`, `avg_latency_ms`,
+`total_cost_estimate_usd`, `parse_error_rate`, `shape_error_rate`.
+Metric definitions: `src/DECISIONS.md` Decision 12.
 
 ## Schema Change Process
 To add a column to the tasks Parquet legitimately:
@@ -133,5 +142,6 @@ To add a column to the tasks Parquet legitimately:
 
 ## Assumptions
 - ARC examples are small enough that JSON-serialized grids in string columns remain acceptable.
-- The project will eventually need separate schemas for inference results and failure taxonomy.
-- Partition keys (`split`, `task_id`) remain encoded in directory paths; they also appear as columns when the full dataset is loaded with `pd.read_parquet()`.
+- Inference results and taxonomy schemas are implemented (see sections 2–4); a separate human-labeled failure table may come later.
+- Partition keys (`split`, `task_id`; `provider`, `model_name` in analytics) remain encoded in directory paths; they also appear as columns when the full dataset is loaded with `pd.read_parquet()`.
+- Inference run directories are intentionally NOT Hive-style so `run_id` remains a physical column in every part file.

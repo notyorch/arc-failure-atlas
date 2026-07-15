@@ -1,175 +1,187 @@
 # ARC-AGI Failure Modes & Evaluation Pipeline
 
-An end-to-end data engineering and evaluation pipeline for studying how local and frontier LLMs behave on the ARC-AGI benchmark.
+An end-to-end data engineering and evaluation pipeline for studying how local
+and frontier LLMs behave on the ARC-AGI benchmark.
 
-This project does **not** aim to solve ARC-AGI directly.  
+This project does **not** aim to solve ARC-AGI directly.
 Its goal is to build the infrastructure needed to:
 
 - ingest ARC-AGI tasks from JSON,
 - normalize grids and task structures,
-- orchestrate large-scale inference across multiple models,
-- store results in Parquet for efficient analysis,
-- and characterize failure modes with a quantitative taxonomy.
-
-## Project Goal
-
-ARC-AGI is a benchmark for abstract reasoning on small visual tasks.  
-Instead of focusing on a solver, this repository focuses on observability, reproducibility, and failure analysis.
+- run batched model inference across providers,
+- parse, validate, and score model outputs,
+- classify failures with a quantitative taxonomy,
+- and store everything in Parquet for reproducible analysis.
 
 The main question is:
 
-> When models fail on ARC-AGI, **how** do they fail, **where** do they fail, and **what does it cost** to evaluate them?
+> When models fail on ARC-AGI, **how** do they fail, **where** do they fail,
+> and **what does it cost** to evaluate them?
 
-## What This Project Does
+## Current Architecture (implemented)
 
-- Reads ARC-AGI tasks in JSON format.
-- Normalizes inputs, outputs, and metadata into structured tabular data.
-- Generates prompts and evaluation batches for multiple LLM providers.
-- Captures predictions, latency, cost, retries, and response metadata.
-- Persists inference outputs in Parquet for scalable downstream analysis.
-- Builds a failure taxonomy covering spatial, topological, symbolic, quantitative, operational, and financial errors.
-- Compares models using metrics such as accuracy, error rate, latency, and cost.
+```
+ARC-AGI JSON tasks                      data/raw/evaluation/*.json
+        │  scripts/fetch_arc_data.py  (download or offline --sample)
+        ▼
+[1] ETL  src/main.py                    data/parquet/evaluation/
+        │  frozen 15-column schema, Hive partitions split=/task_id=
+        ▼
+[2] Inference  src/run_inference.py     data/parquet/inference/runs/<run_id>/
+        │  prompt_builder → provider (mock|openai|ollama) → grid_parser
+        │  → evaluator → failure_taxonomy, incremental part-file flushes
+        ▼
+[3] Analytics  src/build_analytics.py   data/parquet/analytics/
+        │  fact + summary tables         reports/mvp_report.md
+        ▼
+[4] Report / ad-hoc analysis (pandas, DuckDB, notebooks)
+```
 
-## What This Project Does Not Do
+Module map (`src/`):
 
-- It does not attempt to build a new ARC solver.
-- It does not optimize prompts for leaderboard performance.
-- It does not treat ARC as a general IQ benchmark for humans.
-- It does not focus on training or fine-tuning custom models.
+| Module | Responsibility |
+| --- | --- |
+| `main.py` | Base ETL (frozen schema, quality logs) — **source of truth** |
+| `contracts.py` | Inference/analytics schemas + strict column guards |
+| `prompt_builder.py` | Task reconstruction from Parquet + versioned prompt (`arc_grid_v1`) |
+| `providers.py` | `mock` / `openai` / `ollama` providers (stdlib HTTP, no SDKs) |
+| `grid_parser.py` | Extract + validate JSON grids from model text |
+| `evaluator.py` | Exact match, shape, cell accuracy, diff cells |
+| `failure_taxonomy.py` | Deterministic failure-mode classification (v1) |
+| `run_inference.py` | Batch inference CLI |
+| `build_analytics.py` | Analytics tables + markdown report |
 
-## Core Pipeline
+## Setup
 
-1. **Ingestion**
-   - Load ARC-AGI JSON tasks.
-   - Separate train and test examples.
-   - Validate grid dimensions and structural consistency.
+Requires Python ≥ 3.11.
 
-2. **Normalization**
-   - Convert nested grids into analyzable tables.
-   - Standardize metadata and task fields.
-   - Prepare model-ready prompt structures.
+```bash
+pip install -r requirements.txt   # pandas, numpy, pyarrow, duckdb
+```
 
-3. **Inference Orchestration**
-   - Run tasks across local and frontier models.
-   - Handle retries, rate limits, and API errors.
-   - Record model, prompt, response, latency, and cost.
+(`duckdb` is optional — used for ad-hoc SQL exploration only; the pipeline
+itself needs pandas + pyarrow.)
 
-4. **Persistence**
-   - Store outputs in Parquet.
-   - Partition by model, task type, date, or experiment id.
-   - Keep the dataset queryable with Pandas, DuckDB, or PyArrow.
+### Environment variables (only for real providers)
 
-5. **Analysis**
-   - Compute aggregate and per-task metrics.
-   - Classify failures by taxonomy.
-   - Compare performance across models and transformation types.
+Copy `.env.example` and export what you need:
+
+| Variable | Used by | Default |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | `--provider openai` | — (required for openai) |
+| `OPENAI_BASE_URL` | `--provider openai` | `https://api.openai.com/v1` |
+| `OLLAMA_HOST` | `--provider ollama` | `http://localhost:11434` |
+
+The **mock provider needs no credentials and no network** — the full
+pipeline is demonstrable offline.
+
+## Running the MVP end to end
+
+All commands run from the repository root.
+
+### 1. Get task data
+
+```bash
+# Download the first 20 ARC-AGI-1 evaluation tasks (network required)
+python scripts/fetch_arc_data.py --limit 20
+
+# ...or fully offline: copy the 6 bundled sample tasks
+python scripts/fetch_arc_data.py --sample
+```
+
+### 2. Run the ETL
+
+```bash
+python src/main.py
+```
+
+Writes normalized grids to `data/parquet/evaluation/` and validation errors
+to `data/parquet/evaluation_errors/` + `logs/quality_<ts>.log`.
+
+### 3. Run inference
+
+```bash
+# Offline, deterministic, always works:
+python src/run_inference.py --provider mock --model baseline --experiment-id mvp-demo
+
+# Real providers (optional):
+python src/run_inference.py --provider openai --model gpt-4o-mini --limit 20
+python src/run_inference.py --provider ollama --model llama3 --limit 20
+
+# Useful flags: --limit N | --task-id id1,id2 | --dry-run | --experiment-id X
+```
+
+Each run writes scored rows (28-column schema, see `src/contracts.py`) to
+`data/parquet/inference/runs/<run_id>/part-NNNN.parquet`, flushed
+incrementally so partial progress survives interruptions. Per-task provider
+errors become `api_error` rows instead of aborting the batch.
+
+### 4. Build analytics + report
+
+```bash
+python src/build_analytics.py            # add --experiment-id to filter
+```
+
+Rebuilds `data/parquet/analytics/` and regenerates `reports/mvp_report.md`
+(metrics by model, failure-mode distribution, example failures).
+
+## Output folder structure
+
+```
+data/
+  raw/evaluation/                      ARC task JSON (gitignored)
+  parquet/
+    evaluation/                        normalized tasks (Hive: split=/task_id=)
+    evaluation_errors/                 ETL validation rejects
+    inference/runs/<run_id>/           one directory per inference run
+    analytics/
+      fact_inference_results/          cleaned fact table (Hive: provider/model)
+      summary_by_model/
+      summary_by_failure_mode/
+      summary_by_task/
+logs/quality_<timestamp>.log           ETL quality log
+reports/mvp_report.md                  generated evaluation report
+```
+
+## Failure Taxonomy (v1)
+
+Every scored row gets exactly one deterministic label
+(`src/failure_taxonomy.py`):
+
+| Mode | Meaning |
+| --- | --- |
+| `exact_match` | Prediction equals ground truth cell for cell |
+| `api_error` | Provider call failed |
+| `empty_response` | Empty/whitespace reply |
+| `parse_error` | Text present, but no valid ARC grid extractable |
+| `shape_error` | Valid grid, wrong dimensions |
+| `spatial_error` | Right shape + right color histogram, cells misplaced |
+| `symbol_error` | Right shape, wrong color histogram |
+| `unknown_error` | Defensive fallback |
 
 ## Key Metrics
 
-The project is designed to capture more than just accuracy.
+Captured per run and aggregated in `summary_by_*` tables: exact-match rate,
+cell-level accuracy, latency, cost estimate, parse/shape error rates.
+Definitions live in `src/DECISIONS.md` (Decision 12).
 
-- **Accuracy**: overall correctness rate.
-- **Error rate**: proportion of incorrect predictions.
-- **Latency**: time taken per inference.
-- **Cost**: inference cost per model or batch.
-- **Accuracy by transformation type**: performance by spatial, symbolic, or quantitative task category.
-- **Failure taxonomy**: type of error observed in the model output.
+## Known Limitations
 
-## Failure Taxonomy
+- The `mock` provider is a deterministic pipeline-testing tool, **not** a
+  scientific baseline; its numbers demonstrate the pipeline, not model skill.
+- Cost estimates come from a static OpenAI price table (0.0 for mock/ollama).
+- Taxonomy v1 is heuristic (histogram-based spatial/symbol split); finer
+  categories (topological, quantitative...) are future work.
+- Inference targets the `test` split only; `transformation_type` labeling of
+  tasks is still a placeholder (`NULL`).
+- No automated test suite yet — `tests/fixtures/` currently holds sample
+  task data used by the offline mode.
 
-The analysis framework groups errors into categories such as:
+## Repository Docs
 
-- Spatial errors
-- Topological errors
-- Symbolic errors
-- Quantitative errors
-- Operational errors
-- Financial tracking errors
-
-This makes it possible to compare models not only by success rate, but by the kinds of reasoning they struggle with.
-
-## Suggested Tech Stack
-
-- **Python**
-- **NumPy**
-- **Pandas**
-- **PyArrow**
-- **DuckDB**
-- **Parquet**
-- **n8n** or **Apache Airflow**
-- **Docker**
-- **OpenAI API**
-- **Google AI Studio API**
-- **Ollama**
-
-## Repository Structure
-
-A suggested structure for the repository is:
-
-```bash
-.
-├── data/
-│   ├── raw/
-│   ├── processed/
-│   └── parquet/
-├── notebooks/
-├── src/
-│   ├── ingestion/
-│   ├── normalization/
-│   ├── orchestration/
-│   ├── inference/
-│   ├── storage/
-│   └── analysis/
-├── configs/
-├── docs/
-├── tests/
-└── README.md
-```
-
-## Project Phases
-
-### Phase 1: Definition and Alignment
-- Define scope, roles, and terminology.
-- Review ARC-AGI format and benchmark goals.
-- Establish the initial data model and evaluation plan.
-
-### Phase 2: Base ETL and First Inference Runs
-- Build the first working ingestion and normalization flow.
-- Connect one or more LLM providers.
-- Run controlled inference batches.
-
-### Phase 3: Stable Storage and Data Quality
-- Freeze the Parquet schema.
-- Validate consistency, completeness, and reproducibility.
-- Prepare the data for downstream analysis.
-
-### Phase 4: Failure Analysis and Reporting
-- Build the failure taxonomy.
-- Generate comparison tables and visualizations.
-- Produce the final report and presentation materials.
-
-## Team Roles
-
-This project is organized around specialized roles:
-
-- **Pipeline Lead**: dataset ingestion, matrix normalization, ETL logic.
-- **Cloud / ML Infrastructure Engineer**: APIs, local models, runtime environment, rate limits.
-- **Automation & Orchestration Specialist**: workflow automation, retries, scheduling, persistence.
-- **Data Analyst / Taxonomy Specialist**: metrics, failure modes, statistical analysis.
-- **Analytics Translator**: dashboards, visualizations, and communication of results.
-
-## Expected Deliverables
-
-- A reproducible ARC-AGI evaluation pipeline.
-- A Parquet-based results store.
-- A quantitative failure taxonomy.
-- Comparative analysis across models.
-- Final report and presentation-ready visualizations.
-
-## Why This Matters
-
-ARC-AGI is a useful benchmark for studying abstract reasoning under limited examples.  
-By focusing on the evaluation pipeline instead of a solver, this project creates reusable infrastructure for large-scale model assessment, error analysis, and experimental traceability.
+- `docs/MVP_REMAINING_PLAN.md` — implementation plan for this MVP slice.
+- `src/DECISIONS.md` — technical decision log (ETL + evaluation layers).
+- `agent_context/` — shared conventions, schema contracts, repo map.
 
 ## License
 
@@ -177,4 +189,5 @@ TBD.
 
 ## Status
 
-Initial planning and project setup.
+Working MVP: ETL → mock/real inference → scoring → failure taxonomy →
+analytics tables → report, reproducible offline end to end.
