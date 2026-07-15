@@ -198,12 +198,16 @@ class OpenAIProvider(BaseProvider):
 
     name = "openai"
 
-    def __init__(self, model_name: str, timeout: float = 120.0):
+    def __init__(self, model_name: str, timeout: float | None = None):
         super().__init__(model_name)
         self.api_key = os.environ.get("OPENAI_API_KEY", "").strip()
         self.base_url = os.environ.get(
             "OPENAI_BASE_URL", "https://api.openai.com/v1"
         ).rstrip("/")
+        # Large hosted models (e.g. NVIDIA NIM 70B+) often need minutes;
+        # override with OPENAI_TIMEOUT_S when needed.
+        if timeout is None:
+            timeout = float(os.environ.get("OPENAI_TIMEOUT_S", "600"))
         self.timeout = timeout
         if not self.api_key:
             raise ProviderConfigError(

@@ -4,6 +4,14 @@ data/
 # Logs de calidad del ETL (generados por ejecución local, no versionar)
 logs/
 
+# Credenciales locales — nunca versionar (usar .env.example como plantilla)
+.env
+.env.*
+!.env.example
+
+# Experimentos locales ad-hoc (corridas parciales / probes)
+artifacts/mistral_*/
+
 # Ignorar archivos temporales de Python
 __pycache__/
 *.pyc
