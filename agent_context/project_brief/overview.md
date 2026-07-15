@@ -4,25 +4,30 @@
 Atlas | Arc Failure is an infrastructure-first project for evaluating models on ARC-AGI, running inference at scale, storing outputs in Parquet, and analyzing failure modes. The repository is **not** a solver for ARC-AGI.
 
 ## Current State
-The repository is in an early scaffolding stage.
+The base ingestion ETL is functional for batch processing of ARC-AGI evaluation tasks.
 
 What exists today:
 - A root `README.md` that explains the project intent and pipeline at a high level.
 - A minimal `pyproject.toml` with setuptools metadata.
+- Root `requirements.txt` listing `pandas`, `numpy`, `pyarrow`, and `duckdb`.
 - A root `.env.example`, `Makefile`, `docker-compose.yml`, `LICENSE`, and `.gitignore`.
-- One Python script at `src/atlas_arc_failure/ingestion/main.py` that:
-  - reads a JSON task,
-  - flattens ARC grids into tabular rows,
-  - writes a Parquet file.
-- A `src/atlas_arc_failure/ingestion/requirements.txt` file listing `pandas`, `numpy`, `pyarrow`, and `duckdb`.
-  - `ACTUAL`: this is a provisional dependency location and not the final layout; it sits outside `pyproject.toml` as a migration artifact.
+- `src/main.py` (pipeline version `1.1.0`) that:
+  - reads all JSON tasks from `data/raw/evaluation/`,
+  - validates and normalizes ARC grids into long-format rows,
+  - enforces a frozen 15-column Parquet schema,
+  - writes Hive-partitioned output to `data/parquet/evaluation/`,
+  - logs validation errors to text and Parquet.
+- `src/DECISIONS.md`: technical decision log for the ETL.
+- `notebooks/inference_input_reader.py`: reference snippet for reconstructing tasks from Parquet for prompt building.
+- `agent_context/`: shared documentation for agents and contributors.
 
 What does not exist yet:
 - A real package layout with importable modules and package initializers.
-- A validated schema contract for the Parquet outputs.
-- A CLI entrypoint, orchestration layer, or model adapters.
-- Tests, fixtures, notebooks, and documented runbooks.
-- Operational code for observability, prompt versioning, taxonomy classification, or artifact management.
+- A CLI entrypoint (ETL is run as `python src/main.py`).
+- Inference adapters, orchestration layer, or model providers.
+- Inference results Parquet schema.
+- Tests, fixtures, and documented runbooks beyond the ETL.
+- Operational code for taxonomy classification or experiment artifact management.
 
 ## Proposed Direction
 Build a reproducible pipeline that can:
@@ -31,6 +36,8 @@ Build a reproducible pipeline that can:
 - execute controlled inference across models,
 - persist predictions and metadata in Parquet,
 - and analyze failure modes with a stable taxonomy.
+
+The first slice (ingestion + normalized Parquet) is implemented. The next slices are inference orchestration and failure taxonomy.
 
 ## Non-Goals
 - Do not treat this repository as an ARC solver project.
@@ -46,7 +53,7 @@ Build a reproducible pipeline that can:
 - Failure taxonomy that is stable enough for comparative analysis.
 
 ## Assumptions
-- The canonical work should live under `src/atlas_arc_failure/`.
+- Pipeline code lives under `src/` for now.
 - Root-level files should remain thin and declarative.
 - `data/`, `artifacts/`, and `prompts/` are working areas, not source-of-truth code.
-- Future command-line behavior should be exposed through `src/atlas_arc_failure/cli/` or an equivalent entrypoint package.
+- Future command-line behavior should be exposed through a dedicated CLI entrypoint once the module layout is split.

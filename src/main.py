@@ -7,19 +7,44 @@ from datetime import datetime, timezone
 from collections import Counter
 
 # LOGGING CONFIGURATION
-# Extended format with function name for better traceability
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - [%(funcName)s] - %(message)s'
 )
 
+# Dedicated quality logger — writes only validation failures to a text file.
+# Pipeline operational logs (INFO) stay on the console via the root logger.
+# This logger is configured at runtime in __main__ once the log path is known.
+quality_logger = logging.getLogger("arc.quality")
+
 # PIPELINE CONSTANTS
-# Centralizing these values avoids "magic strings" scattered in the code
+PROJECT_ROOT     = Path(__file__).resolve().parent.parent
 PIPELINE_VERSION = "1.1.0"
 VALID_SPLITS     = ["train", "test"]
 VALID_ROLES      = ["input", "output"]
 ARC_COLOR_MIN    = 0
 ARC_COLOR_MAX    = 9
+
+# FROZEN SCHEMA — tasks Parquet (effective from 2026-06-29)
+# Adding, removing, or renaming columns requires team approval.
+# nullable=True means the column may contain NULL values by design.
+TASKS_PARQUET_SCHEMA = {
+    "task_id":             {"nullable": False},
+    "split":               {"nullable": False},
+    "example_id":          {"nullable": False},
+    "grid_role":           {"nullable": False},
+    "rows":                {"nullable": False},
+    "cols":                {"nullable": False},
+    "grid_2d":             {"nullable": False},
+    "grid_flat":           {"nullable": False},
+    "grid_hash":           {"nullable": False},
+    "n_colors":            {"nullable": False},
+    "color_counts":        {"nullable": False},
+    "transformation_type": {"nullable": True},   # filled by analysis module
+    "source_path":         {"nullable": False},
+    "pipeline_version":    {"nullable": False},
+    "ingested_at":         {"nullable": False},
+}
 
 # ARCHITECTURE NOTE (deferred fields for inference sprint)
 # The following fields will be added when the pipeline ingests
@@ -136,7 +161,12 @@ def calculate_grid_metadata(grid: list) -> dict:
 
 # TRANSFORMATION (orchestrates validation plus metadata)
 
-def transform_task_to_rows(task_json: dict, task_id: str) -> tuple:
+def transform_task_to_rows(
+    task_json: dict,
+    task_id: str,
+    source_path: str = "",
+    ingested_at: str = "",
+) -> tuple:
     """
     Converts an ARC task JSON into a LONG tabular format.
 
@@ -151,7 +181,7 @@ def transform_task_to_rows(task_json: dict, task_id: str) -> tuple:
         task_id, split, example_id, grid_role,
         rows, cols, grid_2d, grid_flat, grid_hash,
         n_colors, color_counts, transformation_type,
-        pipeline_version, ingested_at
+        source_path, pipeline_version, ingested_at
 
     Returns: (valid_df, error_df)
         - valid_df: clean rows ready for analysis
@@ -160,7 +190,11 @@ def transform_task_to_rows(task_json: dict, task_id: str) -> tuple:
     logging.info(f"[{task_id}] Starting transformation...")
     valid_rows = []
     error_rows = []
-    ingested_at = datetime.now(timezone.utc).isoformat()
+    # REPRODUCIBILITY: ingested_at is derived from the source file's mtime so
+    # deleting and regenerating the Parquet produces bit-identical rows.
+    # datetime.now() would change every run and break downstream diffing.
+    if not ingested_at:
+        ingested_at = datetime.now(timezone.utc).isoformat()
 
     for split in VALID_SPLITS:
         if split not in task_json:
@@ -172,20 +206,23 @@ def transform_task_to_rows(task_json: dict, task_id: str) -> tuple:
 
                 grid = example.get(role, None)
 
-                # Validation 
+                # Validation
                 is_valid, error_message = validate_grid(grid, role, split)
 
                 if not is_valid:
-                    logging.warning(
+                    msg = (
                         f"[{task_id}] Grid rejected → "
                         f"split={split}, example={example_id}, role={role}: {error_message}"
                     )
+                    logging.warning(msg)
+                    quality_logger.warning(msg)
                     error_rows.append({
-                        "task_id":    task_id,
-                        "split":      split,
-                        "example_id": example_id,
-                        "grid_role":  role,
-                        "error":      error_message,
+                        "task_id":     task_id,
+                        "split":       split,
+                        "example_id":  example_id,
+                        "grid_role":   role,
+                        "error":       error_message,
+                        "source_path": source_path,
                         "ingested_at": ingested_at,
                     })
                     continue
@@ -194,7 +231,7 @@ def transform_task_to_rows(task_json: dict, task_id: str) -> tuple:
                 if grid is None:
                     continue
 
-                # Metadata plus row construction 
+                # Metadata plus row construction
                 metadata = calculate_grid_metadata(grid)
 
                 valid_rows.append({
@@ -204,6 +241,7 @@ def transform_task_to_rows(task_json: dict, task_id: str) -> tuple:
                     "grid_role":           role,
                     **metadata,
                     "transformation_type": None,  # Will be inferred in analysis module
+                    "source_path":         source_path,
                     "pipeline_version":    PIPELINE_VERSION,
                     "ingested_at":         ingested_at,
                 })
@@ -224,6 +262,46 @@ def transform_task_to_rows(task_json: dict, task_id: str) -> tuple:
     return valid_df, error_df
 
 
+# SCHEMA VALIDATION
+
+def validate_output_schema(dataframe: pd.DataFrame, schema: dict) -> None:
+    """
+    Enforces the frozen Parquet schema before any write operation.
+    Raises ValueError immediately so bad data never reaches disk.
+
+    Checks:
+      1. No unexpected columns (strict — additions require approval).
+      2. No missing columns.
+      3. Non-nullable columns contain no NULL values.
+    """
+    expected = set(schema.keys())
+    actual   = set(dataframe.columns)
+
+    extra   = actual - expected
+    missing = expected - actual
+
+    errors = []
+    if extra:
+        errors.append(f"Unexpected columns (need approval to add): {sorted(extra)}")
+    if missing:
+        errors.append(f"Missing columns: {sorted(missing)}")
+
+    if errors:
+        raise ValueError("Schema violation:\n" + "\n".join(f"  - {e}" for e in errors))
+
+    for col, rules in schema.items():
+        if col not in dataframe.columns:
+            continue
+        if not rules["nullable"] and dataframe[col].isnull().any():
+            null_count = dataframe[col].isnull().sum()
+            errors.append(f"Column '{col}' is non-nullable but has {null_count} NULL(s)")
+
+    if errors:
+        raise ValueError("Schema violation:\n" + "\n".join(f"  - {e}" for e in errors))
+
+    logging.info("Schema validation passed (%d columns, %d rows).", len(actual), len(dataframe))
+
+
 # STORAGE
 
 def save_as_parquet(dataframe: pd.DataFrame, output_path: Path, label: str = "data") -> None:
@@ -241,32 +319,155 @@ def save_as_parquet(dataframe: pd.DataFrame, output_path: Path, label: str = "da
     logging.info(f"[{label}] Saved: {output_path} ({len(dataframe)} rows)")
 
 
+def save_partitioned_parquet(
+    dataframe: pd.DataFrame,
+    output_dir: Path,
+    partition_cols: list,
+    label: str = "data",
+) -> None:
+    """
+    Writes a Hive-partitioned Parquet dataset (one sub-directory per partition key).
+
+    TECHNICAL DECISION — Hive partitioning layout:
+        Partition columns are encoded in the directory path, e.g.:
+            split=train/task_id=00576224/part-0.parquet
+        This makes the dataset natively readable by DuckDB, PyArrow, and Pandas
+        without any custom logic, and enables efficient predicate pushdown when
+        querying a single split or task.
+
+    Categorical columns in partition_cols are cast to str before writing because
+    pandas to_parquet does not accept categorical types as partition keys.
+    """
+    if dataframe.empty:
+        logging.warning(f"DataFrame '{label}' empty → no partition will be written to {output_dir}")
+        return
+
+    df_out = dataframe.copy()
+    for col in partition_cols:
+        if col in df_out.columns:
+            df_out[col] = df_out[col].astype(str)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    df_out.to_parquet(
+        output_dir,
+        engine='pyarrow',
+        index=False,
+        partition_cols=partition_cols,
+    )
+    logging.info(
+        f"[{label}] Partitioned Parquet written → {output_dir} "
+        f"| partitions: {partition_cols} | rows: {len(dataframe)}"
+    )
+
+
+# BATCH INGESTION
+
+def _source_path_for_row(file_path: Path) -> str:
+    """Relative repo path with POSIX slashes — stable across OS and CI."""
+    resolved = file_path.resolve()
+    try:
+        return resolved.relative_to(PROJECT_ROOT).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
+def process_folder(input_dir: Path) -> tuple:
+    """
+    Reads every *.json file in input_dir and runs the full ETL on each one.
+
+    Returns: (combined_valid_df, combined_error_df)
+        Both DataFrames span all tasks; task_id distinguishes the source.
+    """
+    json_files = sorted(input_dir.glob("*.json"))
+    if not json_files:
+        logging.warning(f"No JSON files found in: {input_dir}")
+        return pd.DataFrame(), pd.DataFrame()
+
+    logging.info(f"Found {len(json_files)} JSON file(s) in {input_dir}")
+
+    valid_frames = []
+    error_frames = []
+
+    for file_path in json_files:
+        task_id = file_path.stem
+        try:
+            raw_data    = extract_json_data(file_path)
+            file_mtime  = datetime.fromtimestamp(
+                file_path.stat().st_mtime, tz=timezone.utc
+            ).isoformat()
+            valid_df, error_df = transform_task_to_rows(
+                raw_data,
+                task_id=task_id,
+                source_path=_source_path_for_row(file_path),
+                ingested_at=file_mtime,
+            )
+            if not valid_df.empty:
+                valid_frames.append(valid_df)
+            if not error_df.empty:
+                error_frames.append(error_df)
+        except Exception as exc:
+            msg = f"[{task_id}] Skipped due to error: {exc}"
+            logging.error(msg)
+            quality_logger.error(msg)
+
+    combined_valid  = pd.concat(valid_frames,  ignore_index=True) if valid_frames  else pd.DataFrame()
+    combined_errors = pd.concat(error_frames, ignore_index=True) if error_frames else pd.DataFrame()
+
+    logging.info(
+        f"Batch complete: {len(json_files)} files | "
+        f"{len(combined_valid)} valid rows | {len(combined_errors)} error rows"
+    )
+    return combined_valid, combined_errors
+
+
 # ENTRY POINT
 
 if __name__ == "__main__":
+    # Paths
+    input_dir  = Path("data/raw/evaluation")
+    output_dir = Path("data/parquet/evaluation")
+    error_dir  = Path("data/parquet/evaluation_errors")
+    log_dir    = Path("logs")
+
+    # Quality log file — one file per run, timestamped to avoid overwriting history.
+    log_dir.mkdir(parents=True, exist_ok=True)
+    run_ts   = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    log_path = log_dir / f"quality_{run_ts}.log"
+    _fh = logging.FileHandler(log_path, encoding="utf-8")
+    _fh.setLevel(logging.WARNING)
+    _fh.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    quality_logger.addHandler(_fh)
+    quality_logger.setLevel(logging.WARNING)
+
     logging.info("=" * 60)
     logging.info(f"STARTING ARC-AGI ETL  |  pipeline_version={PIPELINE_VERSION}")
+    logging.info(f"Quality log → {log_path}")
     logging.info("=" * 60)
 
-    # Paths
-    # TECHNICAL DECISION: Naming convention for Parquet:
-    #   {task_id}_data.parquet for valid rows ready for analysis
-    #   {task_id}_errors.parquet for rejected grids for auditing
-    # The task_id prefix facilitates partitioning when processing
-    # the 400 real files (the outer loop only changes this path).
-    input_file    = Path('data/raw/dummy_task.json')
-    output_dir    = Path('data/parquet')
-    task_id       = input_file.stem  # "dummy_task"
-
-    data_path   = output_dir / f"{task_id}_data.parquet"
-    error_path  = output_dir / f"{task_id}_errors.parquet"
-
     # Pipeline execution
-    raw_data              = extract_json_data(input_file)
-    valid_df, error_df    = transform_task_to_rows(raw_data, task_id=task_id)
+    valid_df, error_df = process_folder(input_dir)
 
-    save_as_parquet(valid_df,   data_path,   label="analytical base")
-    save_as_parquet(error_df,  error_path, label="errors")
+    # Enforce frozen schema before any data reaches disk
+    if not valid_df.empty:
+        validate_output_schema(valid_df, TASKS_PARQUET_SCHEMA)
+
+    # TECHNICAL DECISION — Partition by split then task_id:
+    #   Queries that filter by split (e.g. "give me all train grids") skip the
+    #   task_id directories entirely.  Adding task_id as a second level lets
+    #   downstream code load a single task cheaply.  With ~400 tasks the number
+    #   of leaf directories stays manageable.
+    save_partitioned_parquet(
+        valid_df,
+        output_dir,
+        partition_cols=["split", "task_id"],
+        label="analytical base",
+    )
+    save_partitioned_parquet(
+        error_df,
+        error_dir,
+        partition_cols=["split", "task_id"],
+        label="errors",
+    )
 
     logging.info("=" * 60)
     logging.info("ETL FINISHED")

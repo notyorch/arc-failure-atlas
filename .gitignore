@@ -1,6 +1,9 @@
 # Ignorar carpetas de datos masivos
 data/
 
+# Logs de calidad del ETL (generados por ejecución local, no versionar)
+logs/
+
 # Ignorar archivos temporales de Python
 __pycache__/
 *.pyc
