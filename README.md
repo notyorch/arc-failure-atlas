@@ -57,11 +57,11 @@ Module map (`src/`):
 Requires Python ≥ 3.11.
 
 ```bash
-pip install -r requirements.txt   # pandas, numpy, pyarrow, duckdb
+pip install -r requirements.txt   # pandas, numpy, pyarrow, duckdb, matplotlib
 ```
 
-(`duckdb` is optional — used for ad-hoc SQL exploration only; the pipeline
-itself needs pandas + pyarrow.)
+(`duckdb` is optional — ad-hoc SQL exploration only; `matplotlib` is needed
+only for demo-bundle charts. The core pipeline needs pandas + pyarrow.)
 
 ### Environment variables (only for real providers)
 
@@ -136,6 +136,18 @@ python scripts/smoke_test.py              # end-to-end ETL→mock→analytics in
 The smoke test is fully offline and never touches `data/` in the repo.
 Equivalent Makefile targets: `make etl`, `make infer-mock`, `make analytics`,
 `make smoke`, `make test`, `make mvp-offline`.
+
+### 6. Demo bundle (one command, presentation-ready)
+
+```bash
+python scripts/demo_bundle.py     # or: make demo-bundle  (~15 s, offline)
+```
+
+Runs the offline mock pipeline end to end and assembles `artifacts/demo/`:
+the regenerated report, CSV exports of every summary table, four PNG charts
+(accuracy by model, failure-mode distribution, latency by model, failure
+mode × model matrix), the analytics manifest, and a README with a 5-minute
+demo flow. Deterministic: reruns reproduce the same metrics and charts.
 
 ## Expected Outputs
 

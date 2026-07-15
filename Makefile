@@ -1,4 +1,4 @@
-.PHONY: help data-sample data-20 etl infer-mock analytics mvp-offline smoke test
+.PHONY: help data-sample data-20 etl infer-mock analytics mvp-offline smoke test demo-bundle
 
 help:
 	@echo "ARC Failure Atlas — common targets"
@@ -8,6 +8,7 @@ help:
 	@echo "  make infer-mock    mock inference run (offline, deterministic)"
 	@echo "  make analytics     build analytics tables + reports/mvp_report.md"
 	@echo "  make mvp-offline   full offline pipeline: sample data → report"
+	@echo "  make demo-bundle   presentation bundle: pipeline + CSVs + charts → artifacts/demo/"
 	@echo "  make smoke         end-to-end smoke test in an isolated temp dir"
 	@echo "  make test          unit tests (parser, evaluator, taxonomy)"
 
@@ -27,6 +28,9 @@ analytics:
 	python src/build_analytics.py
 
 mvp-offline: data-sample etl infer-mock analytics
+
+demo-bundle:
+	python scripts/demo_bundle.py
 
 smoke:
 	python scripts/smoke_test.py

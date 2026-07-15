@@ -1,0 +1,3 @@
+experiment_id,provider,model_name,prompt_version,total_runs,n_evaluable,exact_match_rate,avg_cell_accuracy,avg_latency_ms,total_cost_estimate_usd,parse_error_rate,shape_error_rate
+demo-20260715T171814Z,mock,baseline,arc_grid_v1,26,21,0.038461538461538464,0.3004829404792623,8.48076923076923,0.0,0.11538461538461539,0.46153846153846156
+demo-20260715T171814Z,mock,mock-large,arc_grid_v1,26,18,0.11538461538461539,0.41411950478569604,10.038461538461538,0.0,0.07692307692307693,0.2692307692307692

@@ -31,6 +31,10 @@ python scripts/fetch_arc_data.py --limit 20
 python src/main.py
 python src/run_inference.py --provider mock --model baseline --experiment-id review
 python src/build_analytics.py --experiment-id review
+
+# (e) Demo bundle — expected: "DEMO BUNDLE READY → artifacts/demo" in ~15 s
+#     (CSV summaries + 4 PNG charts + report + manifest + demo README)
+python scripts/demo_bundle.py
 ```
 
 Equivalent Makefile targets (if `make` is installed): `make test`,
@@ -45,6 +49,7 @@ Equivalent Makefile targets (if `make` is installed): `make test`,
 | Sample fetch + ETL (6 tasks) | < 5 s |
 | Mock inference (6–26 tasks) | < 5 s (synthetic latency, no network) |
 | Analytics + report | < 5 s |
+| Demo bundle (pipeline + CSVs + charts) | ~15 s |
 | Real-provider runs | minutes; depends on model/limit — not required for review |
 
 ## 3. Expected output directories (after step c)

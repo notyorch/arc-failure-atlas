@@ -28,6 +28,7 @@
 ## Scripts
 - `scripts/fetch_arc_data.py`: populates `data/raw/evaluation/` — downloads ARC-AGI-1 from GitHub (`--limit N`, `--dataset`) or copies bundled offline fixtures (`--sample`).
 - `scripts/smoke_test.py`: end-to-end ETL→mock→analytics smoke test in an isolated temp dir (offline, ~2–10 s, `SMOKE PASS`/non-zero exit).
+- `scripts/demo_bundle.py`: one-command presentation bundle — runs the offline mock pipeline, then writes CSV summaries, 4 PNG charts, report copy, manifest, and a demo README to `artifacts/demo/` (needs `matplotlib`).
 
 ## Tests
 - `tests/test_grid_parser.py`, `tests/test_evaluator.py`, `tests/test_failure_taxonomy.py`: stdlib `unittest` suite (34 tests) — run with `python -m unittest discover -s tests`.
@@ -50,8 +51,8 @@
 - `logs/quality_<timestamp>.log`: per-run text log of ETL grid validation failures.
 
 ## Platform and Project Scaffolding
-Still empty/placeholder top-level areas: `artifacts/`, `configs/`, `orchestrations/`, `paper/`, `prompts/`, `sql/`.
-`agent_context/`, `notebooks/`, `docs/`, `scripts/`, `tests/`, `reports/` are populated. `data/` and `logs/` exist on disk after running the pipeline but are not tracked in git.
+Still empty/placeholder top-level areas: `configs/`, `orchestrations/`, `paper/`, `prompts/`, `sql/`.
+`agent_context/`, `notebooks/`, `docs/`, `scripts/`, `tests/`, `reports/`, and `artifacts/` (demo bundle) are populated. `data/` and `logs/` exist on disk after running the pipeline but are not tracked in git.
 
 ## Current Architectural Reality
 What exists:

@@ -1,0 +1,23 @@
+{
+  "analytics_schema_version": "1.0.0",
+  "experiment_id_filter": "demo-20260715T171814Z",
+  "finished_at": "2026-07-15T17:18:16.680743+00:00",
+  "git_commit": "f0db19e755d61d3deadb2f224ea0c7d1c75c003f",
+  "inference_schema_version": "1.0.0",
+  "manifest_kind": "analytics_build",
+  "output_path": "data/parquet/analytics",
+  "report_path": "reports/mvp_report.md",
+  "runs_path": "data/parquet/inference/runs",
+  "source_runs": {
+    "20260715T171815Z_mock_baseline_e7054c76": 26,
+    "20260715T171816Z_mock_mock-large_cad6dd2b": 26
+  },
+  "started_at": "2026-07-15T17:18:16.565121+00:00",
+  "status": "completed",
+  "tables": {
+    "fact_inference_results": 52,
+    "summary_by_failure_mode": 7,
+    "summary_by_model": 2,
+    "summary_by_task": 26
+  }
+}

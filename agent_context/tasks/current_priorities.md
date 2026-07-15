@@ -22,6 +22,7 @@
 - Analytics layer `src/build_analytics.py` (fact + 3 summary tables) and generated `reports/mvp_report.md`.
 - Docs updated: README, DECISIONS 8–13, schema contracts, `.env.example`, Makefile.
 - Hardening: unit tests (34, stdlib unittest) for parser/evaluator/taxonomy; `scripts/smoke_test.py` (isolated end-to-end check); `_manifest.json` per run/build with git SHA + schema versions; `docs/REVIEW_CHECKLIST.md`.
+- Demo readiness: `scripts/demo_bundle.py` / `make demo-bundle` — offline pipeline + CSV exports + 4 PNG charts + demo README assembled in `artifacts/demo/` (matplotlib added to requirements).
 
 ## Priority 1: Scale to the full evaluation set
 Run `scripts/fetch_arc_data.py` (no `--limit`) for all ~400 evaluation tasks, then ETL + a full mock run. Confirm volume, partition layout, latency of `build_analytics.py`, and report readability at scale.
