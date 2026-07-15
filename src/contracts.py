@@ -24,6 +24,13 @@ import pandas as pd
 # Version of the inference/analytics layer (independent of the ETL's 1.1.0).
 INFERENCE_PIPELINE_VERSION = "0.1.0"
 
+# Schema versions, stamped into run/build manifests (never as extra Parquet
+# columns — the column sets below are frozen). Bump on any column addition,
+# removal, rename, or semantic change:
+#   MAJOR — breaking (remove/rename/retype), MINOR — additive, PATCH — docs.
+INFERENCE_SCHEMA_VERSION = "1.0.0"   # INFERENCE_PARQUET_SCHEMA
+ANALYTICS_SCHEMA_VERSION = "1.0.0"   # fact + summary tables layout
+
 # Columns the inference stage requires from data/parquet/evaluation/.
 # Reading fails fast if any is missing (protects against upstream drift).
 ETL_REQUIRED_COLUMNS = [

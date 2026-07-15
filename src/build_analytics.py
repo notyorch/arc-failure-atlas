@@ -35,9 +35,12 @@ import pandas as pd
 
 from contracts import (
     ANALYTICS_METRIC_COLUMNS,
+    ANALYTICS_SCHEMA_VERSION,
     INFERENCE_PARQUET_SCHEMA,
+    INFERENCE_SCHEMA_VERSION,
     validate_columns,
 )
+from manifest import git_commit_sha, portable_path, write_manifest
 
 logging.basicConfig(
     level=logging.INFO,
@@ -284,6 +287,7 @@ def main() -> None:
                         help="only include rows from this experiment")
     args = parser.parse_args()
 
+    build_started_at = datetime.now(timezone.utc).isoformat()
     fact = load_fact_table(args.runs_path, args.experiment_id)
 
     by_model = aggregate(fact, ["experiment_id", "provider", "model_name",
@@ -308,6 +312,30 @@ def main() -> None:
     args.report_path.parent.mkdir(parents=True, exist_ok=True)
     args.report_path.write_text(report, encoding="utf-8")
     logging.info("[report] written → %s", args.report_path)
+
+    write_manifest(args.output_path, {
+        "manifest_kind": "analytics_build",
+        "status": "completed",
+        "analytics_schema_version": ANALYTICS_SCHEMA_VERSION,
+        "inference_schema_version": INFERENCE_SCHEMA_VERSION,
+        "git_commit": git_commit_sha(),
+        "started_at": build_started_at,
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "runs_path": portable_path(args.runs_path),
+        "output_path": portable_path(args.output_path),
+        "report_path": portable_path(args.report_path),
+        "experiment_id_filter": args.experiment_id,
+        "source_runs": {
+            str(run_id): int(count)
+            for run_id, count in fact["run_id"].value_counts().sort_index().items()
+        },
+        "tables": {
+            "fact_inference_results": len(fact),
+            "summary_by_model": len(by_model),
+            "summary_by_failure_mode": len(by_mode),
+            "summary_by_task": len(by_task),
+        },
+    })
 
     print("\nANALYTICS BUILT")
     print(f"  fact rows      : {len(fact)}")

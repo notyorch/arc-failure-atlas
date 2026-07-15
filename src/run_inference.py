@@ -36,9 +36,11 @@ import pandas as pd
 from contracts import (
     INFERENCE_PARQUET_SCHEMA,
     INFERENCE_PIPELINE_VERSION,
+    INFERENCE_SCHEMA_VERSION,
     validate_columns,
 )
 from evaluator import evaluate_prediction
+from manifest import git_commit_sha, portable_path, write_manifest
 from failure_taxonomy import classify_failure
 from grid_parser import (
     PARSE_NOT_ATTEMPTED,
@@ -164,6 +166,35 @@ def run_single_item(provider, item: dict) -> dict:
     }
 
 
+def build_manifest_payload(args, run_id: str, run_dir: Path, n_items: int,
+                           status: str, run_started_at: str,
+                           finished_at=None, n_rows_written=None) -> dict:
+    """Everything needed to trace a run back to code, data, and settings."""
+    return {
+        "manifest_kind": "inference_run",
+        "status": status,  # "running" (in progress or crashed) | "completed"
+        "run_id": run_id,
+        "experiment_id": args.experiment_id,
+        "provider": args.provider,
+        "model_name": args.model,
+        "prompt_version": PROMPT_VERSION,
+        "pipeline_version": INFERENCE_PIPELINE_VERSION,
+        "inference_schema_version": INFERENCE_SCHEMA_VERSION,
+        "git_commit": git_commit_sha(),
+        "started_at": run_started_at,
+        "finished_at": finished_at,
+        "input_path": portable_path(args.input_path),
+        "output_path": portable_path(run_dir),
+        "n_items_planned": n_items,
+        "n_rows_written": n_rows_written,
+        "filters": {
+            "limit": args.limit,
+            "task_id": args.task_id,
+            "split": args.split,
+        },
+    }
+
+
 def flush_chunk(rows: list, run_dir: Path, part_index: int) -> int:
     """Validates and writes pending rows as one part file. Returns next index."""
     if not rows:
@@ -271,7 +302,14 @@ def main() -> None:
     run_id = build_run_id(args.provider, args.model)
     run_dir = args.output_path or (DEFAULT_RUNS_DIR / run_id)
 
-    # 3. Inference loop — incremental flushes, per-item error tolerance.
+    # 3. Manifest first (status="running"), so even a crashed run is
+    # traceable to its commit, provider, and inputs.
+    run_started_at = utc_now_iso()
+    write_manifest(run_dir, build_manifest_payload(
+        args, run_id, run_dir, len(items), "running", run_started_at,
+    ))
+
+    # 4. Inference loop — incremental flushes, per-item error tolerance.
     pending, all_rows = [], []
     part_index = 0
     try:
@@ -291,6 +329,10 @@ def main() -> None:
     finally:
         part_index = flush_chunk(pending, run_dir, part_index)
 
+    write_manifest(run_dir, build_manifest_payload(
+        args, run_id, run_dir, len(items), "completed", run_started_at,
+        finished_at=utc_now_iso(), n_rows_written=len(all_rows),
+    ))
     print_summary(all_rows, run_dir, run_id)
 
 
