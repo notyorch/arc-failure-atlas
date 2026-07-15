@@ -20,7 +20,8 @@
 - Response grid parsing/validation (`src/grid_parser.py`), scoring (`src/evaluator.py`), failure taxonomy v1 (`src/failure_taxonomy.py`) — closes former Priority 7 (v1 scope).
 - Batch runner `src/run_inference.py` (incremental flushes, per-task error tolerance, dry-run).
 - Analytics layer `src/build_analytics.py` (fact + 3 summary tables) and generated `reports/mvp_report.md`.
-- Docs updated: README, DECISIONS 8–12, schema contracts, `.env.example`, Makefile.
+- Docs updated: README, DECISIONS 8–13, schema contracts, `.env.example`, Makefile.
+- Hardening: unit tests (34, stdlib unittest) for parser/evaluator/taxonomy; `scripts/smoke_test.py` (isolated end-to-end check); `_manifest.json` per run/build with git SHA + schema versions; `docs/REVIEW_CHECKLIST.md`.
 
 ## Priority 1: Scale to the full evaluation set
 Run `scripts/fetch_arc_data.py` (no `--limit`) for all ~400 evaluation tasks, then ETL + a full mock run. Confirm volume, partition layout, latency of `build_analytics.py`, and report readability at scale.
@@ -28,8 +29,8 @@ Run `scripts/fetch_arc_data.py` (no `--limit`) for all ~400 evaluation tasks, th
 ## Priority 2: Real-provider evaluation runs
 Execute batches against OpenAI and/or Ollama with credentials, compare against the mock run in `summary_by_model`, and sanity-check cost estimates against actual billing.
 
-## Priority 3: Automated tests
-Turn the existing smoke checks into pytest cases using `tests/fixtures/sample_tasks/`: grid_parser edge cases, evaluator metrics, taxonomy ordering, schema guards, runner end-to-end with the mock provider.
+## Priority 3: CI wiring and test expansion
+Unit tests (parser/evaluator/taxonomy) and the end-to-end smoke test exist; wire them into CI (GitHub Actions running `make test` + `make smoke`), then extend coverage to schema guards and prompt_builder reconstruction.
 
 ## Priority 4: Package structure and CLI polish
 Split `src/` into an importable package with `__init__.py` and console entry points. Keep frozen schema guards and partitioning behavior unchanged.
@@ -48,4 +49,4 @@ Move beyond the single `PROMPT_VERSION` constant: a `prompts/` registry with one
 ## Exit Criteria for Next Slice
 - Full 400-task evaluation Parquet generated and ETL quality logs reviewed.
 - At least one real-provider run persisted and compared against mock in the report.
-- Pytest suite covering parser, evaluator, taxonomy, and schema guards in CI-runnable form.
+- CI running `make test` + `make smoke` on every push.

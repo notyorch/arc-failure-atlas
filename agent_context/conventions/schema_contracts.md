@@ -113,6 +113,16 @@ truth. Rule ordering and heuristics: `src/DECISIONS.md` Decision 11.
 A separate human-labeled taxonomy table (labeler, evidence, subcategory)
 remains future work.
 
+### Schema versions and manifests
+
+`INFERENCE_SCHEMA_VERSION` and `ANALYTICS_SCHEMA_VERSION` (semver, in
+`src/contracts.py`) are stamped into the `_manifest.json` written to every
+inference run directory and every analytics build (`src/manifest.py`) —
+never added as Parquet columns. Manifests also record git commit,
+timestamps, provider/model/prompt version, portable input/output paths, and
+row counts; the `_` filename prefix keeps PyArrow dataset discovery from
+reading them as Parquet.
+
 ### 4. Analytics Summary Tables — IMPLEMENTED July 15, 2026
 
 Derived layer, fully rebuilt by `src/build_analytics.py` under

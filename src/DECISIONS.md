@@ -549,6 +549,47 @@ table.
 
 ---
 
+## Decision 13 — Hardening: run manifests, schema versions, smoke test
+
+**Date:** July 15, 2026
+**Modules:** `src/manifest.py`, `src/contracts.py`, `scripts/smoke_test.py`, `tests/`
+
+### Context
+
+Review readiness requires that (a) any Parquet directory can be traced back
+to the exact code and inputs that produced it, (b) schema evolution is
+observable without diffing columns, and (c) a reviewer can validate the
+whole pipeline in seconds without touching repo data.
+
+### Adopted Decision
+
+**Run/build manifests.** Every inference run directory and every analytics
+build gets a `_manifest.json`: git commit SHA, started/finished timestamps,
+provider, model, `prompt_version`, pipeline + schema versions, portable
+input/output paths, planned vs written row counts, and CLI filters. The
+runner writes it twice: at start with `status="running"` (so even a crashed
+run is traceable) and at clean completion with `status="completed"`. The
+underscore prefix is deliberate — PyArrow dataset discovery ignores
+`_`/`.`-prefixed files, so manifests can live inside Parquet trees without
+breaking `pd.read_parquet(<dir>)`.
+
+**Schema version constants.** `INFERENCE_SCHEMA_VERSION` and
+`ANALYTICS_SCHEMA_VERSION` in `src/contracts.py`, stamped into manifests
+(never added as Parquet columns — the column sets stay frozen). Semver
+bump rules documented next to the constants.
+
+**Smoke test.** `scripts/smoke_test.py` runs the three real CLIs as
+subprocesses against an isolated temp directory (the ETL resolves `data/`
+relative to its cwd, which makes isolation free), asserts row counts,
+manifests, tables, and the report, and prints `SMOKE PASS`/exits non-zero.
+Offline, ~2–10 s, never touches repository `data/`.
+
+**Unit tests.** `tests/test_{grid_parser,evaluator,failure_taxonomy}.py`
+use stdlib `unittest` (no new dependencies) and cover the scoring path's
+edge cases; run with `python -m unittest discover -s tests`.
+
+---
+
 ## Deferred Fields (historical note)
 
 > **Superseded on July 15, 2026:** the inference sprint implemented these

@@ -50,6 +50,7 @@ Module map (`src/`):
 | `failure_taxonomy.py` | Deterministic failure-mode classification (v1) |
 | `run_inference.py` | Batch inference CLI |
 | `build_analytics.py` | Analytics tables + markdown report |
+| `manifest.py` | `_manifest.json` writers (git SHA, versions, paths per run/build) |
 
 ## Setup
 
@@ -125,16 +126,30 @@ python src/build_analytics.py            # add --experiment-id to filter
 Rebuilds `data/parquet/analytics/` and regenerates `reports/mvp_report.md`
 (metrics by model, failure-mode distribution, example failures).
 
-## Output folder structure
+### 5. Verify (tests + smoke)
+
+```bash
+python -m unittest discover -s tests -v   # unit tests: parser, evaluator, taxonomy
+python scripts/smoke_test.py              # end-to-end ETL→mock→analytics in a temp dir (~10 s)
+```
+
+The smoke test is fully offline and never touches `data/` in the repo.
+Equivalent Makefile targets: `make etl`, `make infer-mock`, `make analytics`,
+`make smoke`, `make test`, `make mvp-offline`.
+
+## Expected Outputs
 
 ```
 data/
   raw/evaluation/                      ARC task JSON (gitignored)
   parquet/
     evaluation/                        normalized tasks (Hive: split=/task_id=)
-    evaluation_errors/                 ETL validation rejects
+    evaluation_errors/                 ETL validation rejects (only when errors exist)
     inference/runs/<run_id>/           one directory per inference run
+      part-NNNN.parquet                incremental result chunks
+      _manifest.json                   run manifest (commit SHA, model, paths...)
     analytics/
+      _manifest.json                   build manifest (source runs, versions...)
       fact_inference_results/          cleaned fact table (Hive: provider/model)
       summary_by_model/
       summary_by_failure_mode/
@@ -142,6 +157,17 @@ data/
 logs/quality_<timestamp>.log           ETL quality log
 reports/mvp_report.md                  generated evaluation report
 ```
+
+Key columns per layer (authoritative lists: `TASKS_PARQUET_SCHEMA` in
+`src/main.py`, `INFERENCE_PARQUET_SCHEMA` in `src/contracts.py`):
+
+| Output | Key columns |
+| --- | --- |
+| `parquet/evaluation/` (15 cols) | `task_id`, `split`, `example_id`, `grid_role`, `grid_2d` (JSON string), `rows`, `cols`, `grid_hash`, `source_path`, `pipeline_version`, `ingested_at` |
+| `parquet/inference/runs/` (28 cols) | `run_id`, `experiment_id`, `provider`, `model_name`, `prompt_version`, `task_id`, `test_example_id`, `response_text`, `predicted_grid_json`, `expected_output_grid_json`, `status`, `latency_ms`, `cost_estimate_usd`, `parse_status`, `is_exact_match`, `same_shape`, `cell_accuracy`, `n_diff_cells`, `failure_mode`, `failure_detail` |
+| `analytics/fact_inference_results/` | same 28 columns, deduplicated, Hive-partitioned by `provider`/`model_name` |
+| `analytics/summary_by_*` | grouping key(s) + `total_runs`, `n_evaluable`, `exact_match_rate`, `avg_cell_accuracy`, `avg_latency_ms`, `total_cost_estimate_usd`, `parse_error_rate`, `shape_error_rate` |
+| `_manifest.json` (per run/build) | `git_commit`, `started_at`/`finished_at`, `provider`, `model_name`, `prompt_version`, schema versions, input/output paths, row counts |
 
 ## Failure Taxonomy (v1)
 
@@ -174,11 +200,12 @@ Definitions live in `src/DECISIONS.md` (Decision 12).
   categories (topological, quantitative...) are future work.
 - Inference targets the `test` split only; `transformation_type` labeling of
   tasks is still a placeholder (`NULL`).
-- No automated test suite yet — `tests/fixtures/` currently holds sample
-  task data used by the offline mode.
+- Unit tests cover the scoring path (parser, evaluator, taxonomy); the ETL
+  itself is exercised end to end by the smoke test, not by unit tests yet.
 
 ## Repository Docs
 
+- `docs/REVIEW_CHECKLIST.md` — exact commands and expectations for reviewers.
 - `docs/MVP_REMAINING_PLAN.md` — implementation plan for this MVP slice.
 - `src/DECISIONS.md` — technical decision log (ETL + evaluation layers).
 - `agent_context/` — shared conventions, schema contracts, repo map.
