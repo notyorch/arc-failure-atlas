@@ -28,7 +28,14 @@
 Run `scripts/fetch_arc_data.py` (no `--limit`) for all ~400 evaluation tasks, then ETL + a full mock run. Confirm volume, partition layout, latency of `build_analytics.py`, and report readability at scale.
 
 ## Priority 2: Real-provider evaluation runs
-Execute batches against OpenAI and/or Ollama with credentials, compare against the mock run in `summary_by_model`, and sanity-check cost estimates against actual billing.
+**First real run done (July 15, 2026):** `z-ai/glm-5.2` via NVIDIA NIM
+(OpenAI-compatible endpoint, `OPENAI_BASE_URL` override, zero code changes) —
+26 tasks, 8 exact matches (30.8%), 0.776 avg cell accuracy, 0 parse errors,
+~15.3 s avg latency. Report: `reports/real_run_glm52.md`. Observed: with
+temperature 0, the hosted reasoning model is still nondeterministic across
+runs (one task flipped exact↔symbol_error between two runs) — run lineage
+matters. Remaining: more models/providers, full 400-task batches, and
+sanity-checking cost estimates against actual billing.
 
 ## Priority 3: CI wiring and test expansion
 Unit tests (parser/evaluator/taxonomy) and the end-to-end smoke test exist; wire them into CI (GitHub Actions running `make test` + `make smoke`), then extend coverage to schema guards and prompt_builder reconstruction.
