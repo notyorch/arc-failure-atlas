@@ -1,0 +1,14 @@
+{
+  "pack_id": "arc_agi_1",
+  "benchmark_family": "arc_agi",
+  "benchmark_name": "ARC-AGI-1",
+  "benchmark_version": "repo-default-v1",
+  "task_source": "local_repo_pack",
+  "split_name": "evaluation",
+  "tasks_dir": "tasks",
+  "task_count": 0,
+  "task_format": "arc_json",
+  "task_id_pattern": "arc_agi_1_task_id",
+  "license_or_usage_notes": "Public ARC-AGI-1 tasks (fchollet/ARC-AGI). Place or symlink evaluation JSON under tasks/.",
+  "notes": "Default family for backward-compatible runs. You may also keep using data/raw/evaluation/ without selecting this pack (legacy stamp)."
+}

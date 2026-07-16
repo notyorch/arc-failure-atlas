@@ -1,0 +1,35 @@
+{
+  "registry_version": 1,
+  "_readme": [
+    "Minimal solvers.json snippets for external authors.",
+    "Copy the entry you need into configs/solvers.json (or a private copy).",
+    "Prefer submission_file / submission_dir before subprocess wrappers."
+  ],
+  "solvers": {
+    "my-kaggle-submission": {
+      "adapter": "submission_file",
+      "family": "external",
+      "version": "0.1.0",
+      "enabled": true,
+      "path": "path/to/your/submission.json",
+      "notes": "Point path at your Kaggle-style submission.json, then: python src/run_evaluation.py --solver my-kaggle-submission"
+    },
+    "my-prediction-dir": {
+      "adapter_type": "submission_dir",
+      "family": "external",
+      "version": "0.1.0",
+      "enabled": true,
+      "path": "path/to/your/predictions/",
+      "notes": "One <task_id>.json per task. adapter_type is an alias of adapter."
+    },
+    "my-cli-solver": {
+      "adapter": "subprocess_cli",
+      "family": "external",
+      "version": "0.1.0",
+      "enabled": true,
+      "command": ["python", "examples/external_solver/cli_wrapper_template.py"],
+      "timeout_s": 120,
+      "notes": "subprocess_cli aliases to subprocess. Speaks stdin/stdout wire contract."
+    }
+  }
+}

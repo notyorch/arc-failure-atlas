@@ -23,7 +23,8 @@ ARC_COLOR_MIN = 0
 ARC_COLOR_MAX = 9
 
 # Bound the scan so a pathological response cannot stall the run.
-_MAX_CANDIDATES = 200
+# Thinking dumps can contain many nested arrays; keep headroom above 200.
+_MAX_CANDIDATES = 2000
 
 PARSE_OK = "ok"
 PARSE_EMPTY = "empty_response"
@@ -158,25 +159,51 @@ def extract_first_json_array(text: str) -> Optional[list]:
     return next(_iter_json_array_candidates(text), None)
 
 
+def parse_grid_object(obj) -> ParseResult:
+    """
+    Validate an ALREADY-STRUCTURED prediction (a Python list from a solver's
+    JSON envelope or a submission file) into the same ParseResult contract as
+    free-text parsing, so structured and text-emitting solvers flow through
+    identical validation, scoring, and taxonomy paths.
+    """
+    if obj is None:
+        return ParseResult(PARSE_EMPTY, "solver returned no prediction", None, None)
+    grid = normalize_grid(obj) if isinstance(obj, list) else obj
+    is_valid, error = validate_grid(grid)
+    if is_valid:
+        return ParseResult(PARSE_OK, None, serialize_grid(grid), grid)
+    return ParseResult(
+        PARSE_INVALID_GRID, f"structured prediction is not a valid ARC grid: {error}",
+        None, None,
+    )
+
+
 def parse_response(response_text: Optional[str]) -> ParseResult:
     """
-    Full pipeline: scan → normalize → validate. Returns the first candidate
-    that validates as an ARC grid; skips earlier arrays that do not (e.g. a
-    stray "[1]" in surrounding prose).
+    Full pipeline: scan → normalize → validate.
+
+    Returns the **last** candidate that validates as an ARC grid. Thinking
+    models often emit intermediate arrays while reasoning; the final answer
+    is typically the last valid grid in the text. Earlier invalid arrays are
+    skipped (same as before).
     """
     if response_text is None or not response_text.strip():
         return ParseResult(PARSE_EMPTY, "response text is empty", None, None)
 
     found_any = False
     last_error = None
+    last_ok: Optional[ParseResult] = None
     for candidate in _iter_json_array_candidates(response_text):
         found_any = True
         grid = normalize_grid(candidate)
         is_valid, error = validate_grid(grid)
         if is_valid:
-            return ParseResult(PARSE_OK, None, serialize_grid(grid), grid)
-        last_error = error
+            last_ok = ParseResult(PARSE_OK, None, serialize_grid(grid), grid)
+        else:
+            last_error = error
 
+    if last_ok is not None:
+        return last_ok
     if not found_any:
         return ParseResult(
             PARSE_NO_JSON, "no parseable JSON array in response", None, None

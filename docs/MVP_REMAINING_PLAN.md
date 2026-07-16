@@ -15,7 +15,7 @@ pipeline on top of the existing (frozen) ETL. This is **not** an ARC solver.
 | Frozen tasks Parquet schema (15 columns) | `TASKS_PARQUET_SCHEMA` in `src/main.py` | ✅ Enforced before write |
 | Hive partitioning `split=<s>/task_id=<t>/` | `save_partitioned_parquet()` | ✅ Working |
 | Quality logging (text + error Parquet) | `arc.quality` logger | ✅ Working |
-| Task reconstruction reference | `notebooks/inference_input_reader.py` | ✅ Reference snippet |
+| Task reconstruction reference | `notebooks/inference_input_reader.py` | ✅ Reference snippet (later folded into `src/prompt_builder.py` and removed) |
 | Decision log | `src/DECISIONS.md` | ✅ Up to Decision 7 |
 | Conventions / schema contracts | `agent_context/` | ✅ Documented |
 
@@ -53,7 +53,7 @@ pipeline on top of the existing (frozen) ETL. This is **not** an ARC solver.
    (rectangular, ints 0–9).
 5. **Prompt builder** — versioned `arc_grid_v1` prompt from task train
    examples + one test input; includes parquet→task reconstruction helpers
-   (adapted from `notebooks/inference_input_reader.py`).
+   (adapted from `notebooks/inference_input_reader.py`, since removed).
 6. **Providers** — `BaseProvider`, `MockProvider` (deterministic, offline,
    exercises every failure mode), `OpenAIProvider` and `OllamaProvider` via
    stdlib HTTP (no new dependencies); real providers fail gracefully with

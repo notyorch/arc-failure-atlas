@@ -1,0 +1,70 @@
+{
+  "source_name": "arc_prize_official",
+  "source_url": "https://arcprize.org/leaderboard",
+  "benchmark_name": "ARC-AGI-1",
+  "date_observed": "2025-04-16",
+  "_readme": [
+    "Curated snapshot of publicly documented ARC Prize / ARC-AGI-1 results.",
+    "Scores are NOT scraped live — refresh this file when humans verify new pages.",
+    "Primary citations: arcprize.org blog (o3) and arcprize.org leaderboard policy notes.",
+    "Do not treat these rows as exhaustive or up-to-the-minute."
+  ],
+  "rows": [
+    {
+      "submission_name": "OpenAI o3 (high-efficiency)",
+      "team_authors": "OpenAI (tested by ARC Prize)",
+      "model_family": "reasoning_llm",
+      "score": 0.757,
+      "rank": 1,
+      "cost_per_task_usd": 26.0,
+      "total_cost_usd": 2680.0,
+      "verification_status": "verified",
+      "trust_tier": "official_verified",
+      "split_type": "semi_private",
+      "comparison_scope": "semi_private_100",
+      "n_tasks": 100,
+      "notes": "From ARC Prize blog 'o3 Breakthrough' (Dec 2024; cost notes updated 2025). Semi-private eval @ <$10k public-leaderboard budget."
+    },
+    {
+      "submission_name": "OpenAI o3 (low-efficiency / high-compute)",
+      "team_authors": "OpenAI (tested by ARC Prize)",
+      "model_family": "reasoning_llm",
+      "score": 0.875,
+      "rank": null,
+      "cost_per_task_usd": 4560.0,
+      "total_cost_usd": 456000.0,
+      "verification_status": "verified",
+      "trust_tier": "official_verified",
+      "split_type": "semi_private",
+      "comparison_scope": "semi_private_100",
+      "n_tasks": 100,
+      "notes": "Same source; outside $10k public leaderboard cost filter — shown for efficiency context only."
+    },
+    {
+      "submission_name": "OpenAI o3 (high-efficiency, public eval)",
+      "team_authors": "OpenAI (tested by ARC Prize)",
+      "model_family": "reasoning_llm",
+      "score": 0.828,
+      "cost_per_task_usd": 167.0,
+      "total_cost_usd": 66772.0,
+      "verification_status": "verified",
+      "trust_tier": "official_verified",
+      "split_type": "public",
+      "comparison_scope": "full_benchmark",
+      "n_tasks": 400,
+      "notes": "Public eval 400 tasks — still not Kaggle-contest comparable."
+    },
+    {
+      "submission_name": "GPT-4o (context baseline)",
+      "team_authors": "OpenAI / ARC Prize reporting",
+      "model_family": "base_llm",
+      "score": 0.05,
+      "verification_status": "verified",
+      "trust_tier": "official_verified",
+      "split_type": "public",
+      "comparison_scope": "full_benchmark",
+      "n_tasks": null,
+      "notes": "Approximate public baseline cited in ARC Prize o3 writeup (~5% GPT-4o era). Coarse context only."
+    }
+  ]
+}

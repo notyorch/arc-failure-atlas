@@ -1,232 +1,194 @@
-# ARC-AGI Failure Modes & Evaluation Pipeline
+# ARC Solver Evaluation Platform
 
-An end-to-end data engineering and evaluation pipeline for studying how local
-and frontier LLMs behave on the ARC-AGI benchmark.
+Open-source **local judge** for ARC-AGI solver research: versioned benchmark
+packs, submission-first ingestion, reproducible analytics, optional public-score
+context, and a static results UI.
 
-This project does **not** aim to solve ARC-AGI directly.
-Its goal is to build the infrastructure needed to:
+**Handoff guide:** [`docs/HANDOFF.md`](docs/HANDOFF.md) · **Evidence index:**
+[`reports/README.md`](reports/README.md)
 
-- ingest ARC-AGI tasks from JSON,
-- normalize grids and task structures,
-- run batched model inference across providers,
-- parse, validate, and score model outputs,
-- classify failures with a quantitative taxonomy,
-- and store everything in Parquet for reproducible analysis.
+---
 
-The main question is:
+## What this is / what this is not
 
-> When models fail on ARC-AGI, **how** do they fail, **where** do they fail,
-> and **what does it cost** to evaluate them?
-
-## Current Architecture (implemented)
-
-```
-ARC-AGI JSON tasks                      data/raw/evaluation/*.json
-        │  scripts/fetch_arc_data.py  (download or offline --sample)
-        ▼
-[1] ETL  src/main.py                    data/parquet/evaluation/
-        │  frozen 15-column schema, Hive partitions split=/task_id=
-        ▼
-[2] Inference  src/run_inference.py     data/parquet/inference/runs/<run_id>/
-        │  prompt_builder → provider (mock|openai|ollama) → grid_parser
-        │  → evaluator → failure_taxonomy, incremental part-file flushes
-        ▼
-[3] Analytics  src/build_analytics.py   data/parquet/analytics/
-        │  fact + summary tables         reports/mvp_report.md
-        ▼
-[4] Report / ad-hoc analysis (pandas, DuckDB, notebooks)
-```
-
-Module map (`src/`):
-
-| Module | Responsibility |
+| This **is** | This **is not** |
 | --- | --- |
-| `main.py` | Base ETL (frozen schema, quality logs) — **source of truth** |
-| `contracts.py` | Inference/analytics schemas + strict column guards |
-| `prompt_builder.py` | Task reconstruction from Parquet + versioned prompt (`arc_grid_v1`) |
-| `providers.py` | `mock` / `openai` / `ollama` providers (stdlib HTTP, no SDKs) |
-| `grid_parser.py` | Extract + validate JSON grids from model text |
-| `evaluator.py` | Exact match, shape, cell accuracy, diff cells |
-| `failure_taxonomy.py` | Deterministic failure-mode classification (v1) |
-| `run_inference.py` | Batch inference CLI |
-| `build_analytics.py` | Analytics tables + markdown report |
-| `manifest.py` | `_manifest.json` writers (git SHA, versions, paths per run/build) |
+| A reproducible evaluation **platform** for heterogeneous solvers | An ARC solver or training codebase |
+| Submission-first (`submission.json` / prediction dir) | The official ARC Prize / Kaggle leaderboard |
+| Local Parquet + manifests + failure taxonomy | A hosted SaaS (you run it locally) |
+| Optional curated **observatory** for public-score **context** | Auto-download of licensed AGI-2 corpora |
 
-## Setup
+---
 
-Requires Python ≥ 3.11.
-
-```bash
-pip install -r requirements.txt   # pandas, numpy, pyarrow, duckdb, matplotlib
-```
-
-(`duckdb` is optional — ad-hoc SQL exploration only; `matplotlib` is needed
-only for demo-bundle charts. The core pipeline needs pandas + pyarrow.)
-
-### Environment variables (only for real providers)
-
-Copy `.env.example` and export what you need:
-
-| Variable | Used by | Default |
-| --- | --- | --- |
-| `OPENAI_API_KEY` | `--provider openai` | — (required for openai) |
-| `OPENAI_BASE_URL` | `--provider openai` | `https://api.openai.com/v1` |
-| `OLLAMA_HOST` | `--provider ollama` | `http://localhost:11434` |
-
-The **mock provider needs no credentials and no network** — the full
-pipeline is demonstrable offline.
-
-## Running the MVP end to end
-
-All commands run from the repository root.
-
-### 1. Get task data
-
-```bash
-# Download the first 20 ARC-AGI-1 evaluation tasks (network required)
-python scripts/fetch_arc_data.py --limit 20
-
-# ...or fully offline: copy the 6 bundled sample tasks
-python scripts/fetch_arc_data.py --sample
-```
-
-### 2. Run the ETL
-
-```bash
-python src/main.py
-```
-
-Writes normalized grids to `data/parquet/evaluation/` and validation errors
-to `data/parquet/evaluation_errors/` + `logs/quality_<ts>.log`.
-
-### 3. Run inference
-
-```bash
-# Offline, deterministic, always works:
-python src/run_inference.py --provider mock --model baseline --experiment-id mvp-demo
-
-# Real providers (optional):
-python src/run_inference.py --provider openai --model gpt-4o-mini --limit 20
-python src/run_inference.py --provider ollama --model llama3 --limit 20
-
-# Useful flags: --limit N | --task-id id1,id2 | --dry-run | --experiment-id X
-```
-
-Each run writes scored rows (28-column schema, see `src/contracts.py`) to
-`data/parquet/inference/runs/<run_id>/part-NNNN.parquet`, flushed
-incrementally so partial progress survives interruptions. Per-task provider
-errors become `api_error` rows instead of aborting the batch.
-
-### 4. Build analytics + report
-
-```bash
-python src/build_analytics.py            # add --experiment-id to filter
-```
-
-Rebuilds `data/parquet/analytics/` and regenerates `reports/mvp_report.md`
-(metrics by model, failure-mode distribution, example failures).
-
-### 5. Verify (tests + smoke)
-
-```bash
-python -m unittest discover -s tests -v   # unit tests: parser, evaluator, taxonomy
-python scripts/smoke_test.py              # end-to-end ETL→mock→analytics in a temp dir (~10 s)
-```
-
-The smoke test is fully offline and never touches `data/` in the repo.
-Equivalent Makefile targets: `make etl`, `make infer-mock`, `make analytics`,
-`make smoke`, `make test`, `make mvp-offline`.
-
-### 6. Demo bundle (one command, presentation-ready)
-
-```bash
-python scripts/demo_bundle.py     # or: make demo-bundle  (~15 s, offline)
-```
-
-Runs the offline mock pipeline end to end and assembles `artifacts/demo/`:
-the regenerated report, CSV exports of every summary table, four PNG charts
-(accuracy by model, failure-mode distribution, latency by model, failure
-mode × model matrix), the analytics manifest, and a README with a 5-minute
-demo flow. Deterministic: reruns reproduce the same metrics and charts.
-
-## Expected Outputs
+## How it works (today)
 
 ```
-data/
-  raw/evaluation/                      ARC task JSON (gitignored)
-  parquet/
-    evaluation/                        normalized tasks (Hive: split=/task_id=)
-    evaluation_errors/                 ETL validation rejects (only when errors exist)
-    inference/runs/<run_id>/           one directory per inference run
-      part-NNNN.parquet                incremental result chunks
-      _manifest.json                   run manifest (commit SHA, model, paths...)
-    analytics/
-      _manifest.json                   build manifest (source runs, versions...)
-      fact_inference_results/          cleaned fact table (Hive: provider/model)
-      summary_by_model/
-      summary_by_failure_mode/
-      summary_by_task/
-logs/quality_<timestamp>.log           ETL quality log
-reports/mvp_report.md                  generated evaluation report
+benchmark pack / raw JSON
+        →  src/main.py (ETL)  →  tasks Parquet + pack metadata
+        →  src/run_evaluation.py  →  scored rows + run manifest
+        →  src/build_analytics.py  →  CSVs + reports/*.md
+        →  (optional) public_results_cli + export_frontend_data → UI JSON
 ```
 
-Key columns per layer (authoritative lists: `TASKS_PARQUET_SCHEMA` in
-`src/main.py`, `INFERENCE_PARQUET_SCHEMA` in `src/contracts.py`):
+- **Judge:** parsing, scoring, and taxonomy are solver-agnostic (Standard Solver
+  Interface + adapters in `src/solvers.py`).
+- **Benchmark packs:** `benchmark_packs/<pack_id>/manifest.json` + `tasks/`
+  (`arc_agi_1`, `arc_agi_2`, `example_local_pack`). See
+  [`docs/BENCHMARK_PACKS.md`](docs/BENCHMARK_PACKS.md).
+- **Submission-first:** external authors validate and score artifacts via
+  `src/submission_cli.py` — no core rewrite. See
+  [`docs/QUICKSTART_EXTERNAL_SOLVER.md`](docs/QUICKSTART_EXTERNAL_SOLVER.md).
+- **Observatory vs judge:** the judge scores **your** runs; the observatory
+  ingests **curated public fixtures** for side-by-side context only
+  (`comparison_scope=local_pilot_partial`). See
+  [`docs/PUBLIC_RESULTS_OBSERVATORY.md`](docs/PUBLIC_RESULTS_OBSERVATORY.md).
+- **Frontend:** `scripts/export_frontend_data.py` writes static
+  `frontend/public/data/overview.json`; Vite serves it read-only. No backend.
 
-| Output | Key columns |
+**Scoring (Decision 21):** reports include `solved_rate` (per test example),
+`task_solved_rate` (ARC-official per task), and `exact_match_rate` (per attempt).
+
+---
+
+## Ease-of-use rubric (solver developers)
+
+Six dimensions, 1–5 each (total 6–30). Current self-assessment: **~24/30**.
+
+| Dimension | Focus |
 | --- | --- |
-| `parquet/evaluation/` (15 cols) | `task_id`, `split`, `example_id`, `grid_role`, `grid_2d` (JSON string), `rows`, `cols`, `grid_hash`, `source_path`, `pipeline_version`, `ingested_at` |
-| `parquet/inference/runs/` (28 cols) | `run_id`, `experiment_id`, `provider`, `model_name`, `prompt_version`, `task_id`, `test_example_id`, `response_text`, `predicted_grid_json`, `expected_output_grid_json`, `status`, `latency_ms`, `cost_estimate_usd`, `parse_status`, `is_exact_match`, `same_shape`, `cell_accuracy`, `n_diff_cells`, `failure_mode`, `failure_detail` |
-| `analytics/fact_inference_results/` | same 28 columns, deduplicated, Hive-partitioned by `provider`/`model_name` |
-| `analytics/summary_by_*` | grouping key(s) + `total_runs`, `n_evaluable`, `exact_match_rate`, `avg_cell_accuracy`, `avg_latency_ms`, `total_cost_estimate_usd`, `parse_error_rate`, `shape_error_rate` |
-| `_manifest.json` (per run/build) | `git_commit`, `started_at`/`finished_at`, `provider`, `model_name`, `prompt_version`, schema versions, input/output paths, row counts |
+| Onboarding | Scored run without editing platform core |
+| Benchmark pack setup | Pack by id or path; versioned manifest |
+| Submission ingest | `submission.json` or prediction directory |
+| Reproducibility | Manifests + deterministic offline mock path |
+| Analytics | Taxonomy + benchmark metadata in reports |
+| Observatory clarity | Local judge ≠ public observatory |
 
-## Failure Taxonomy (v1)
+---
 
-Every scored row gets exactly one deterministic label
-(`src/failure_taxonomy.py`):
+## Requirements
 
-| Mode | Meaning |
+- Python **3.11+**
+- Node.js **18+** (frontend only)
+- Optional: OpenAI-compatible API key for LLM-direct pilots
+
+```bash
+git clone <this-repo>
+cd arc-failure-atlas
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env    # optional; export vars yourself — not auto-loaded
+```
+
+---
+
+## Quick start
+
+### 1. Verify (offline, no keys)
+
+```bash
+make test                 # 135 unit tests
+make smoke                # isolated ETL → mock eval → analytics
+make mvp-offline          # sample data → report
+```
+
+### 2. ARC-AGI-2 pack (local tasks)
+
+Task JSON under `benchmark_packs/arc_agi_2/tasks/` is **gitignored** on fresh
+clones. Populate from the official ARC-AGI-2 public evaluation set:
+
+```bash
+# after obtaining evaluation JSON elsewhere
+cp /path/to/evaluation/*.json benchmark_packs/arc_agi_2/tasks/
+# or: ln -sfn /abs/path/to/evaluation benchmark_packs/arc_agi_2/tasks
+
+python src/main.py --benchmark-pack arc_agi_2
+python src/main.py --list-benchmark-packs
+```
+
+### 3. Evaluate your solver (preferred)
+
+```bash
+python src/submission_cli.py validate-submission \
+  --path examples/external_solver/submission.json
+
+python src/submission_cli.py evaluate-submission \
+  --path path/to/your/submission.json \
+  --solver-name my-system --experiment-id pre-submit
+
+python src/build_analytics.py --experiment-id pre-submit
+```
+
+### 4. LLM-direct pilot (optional, manual)
+
+```bash
+export OPENAI_API_KEY="…"
+export OPENAI_BASE_URL="https://opencode.ai/zen/go/v1"
+
+python src/run_evaluation.py \
+  --provider openai --model glm-5.2 \
+  --prompt-version arc_grid_v2 \
+  --benchmark-pack arc_agi_2 \
+  --task-id <ids> --limit 5 \
+  --experiment-id my-pilot
+```
+
+OpenCode Go model ids: `glm-5.2`, `qwen3.7-max`, `kimi-k2.6` (not `z-ai/…`
+aliases). Default `--attempts` is **1**; pass@2 → `--attempts 2`.
+
+### 5. Frontend
+
+```bash
+python scripts/export_frontend_data.py --run-id <run_id>
+cd frontend && npm install && npm run dev
+```
+
+### 6. Public context (optional)
+
+```bash
+python src/public_results_cli.py compare --run-id <run_id>
+```
+
+---
+
+## Release status (academic MVP)
+
+| Area | Status |
 | --- | --- |
-| `exact_match` | Prediction equals ground truth cell for cell |
-| `api_error` | Provider call failed |
-| `empty_response` | Empty/whitespace reply |
-| `parse_error` | Text present, but no valid ARC grid extractable |
-| `shape_error` | Valid grid, wrong dimensions |
-| `spatial_error` | Right shape + right color histogram, cells misplaced |
-| `symbol_error` | Right shape, wrong color histogram |
-| `unknown_error` | Defensive fallback |
+| Offline pipeline | Verified: `make test`, `make smoke` |
+| Benchmark packs + ETL | Verified; AGI-2 smoke on local 120-task pack |
+| Submission adapters | Verified via examples + tests |
+| LLM-direct pilots | Documented evidence in `reports/` (partial n) |
+| Full AGI-2 corpus eval | **Not run** — manual, operator-initiated |
+| CI / GitHub Actions | **Not wired** |
+| Gemini / Claude live | **Manual** first-run still on checklist |
 
-## Key Metrics
+Details: [`docs/HANDOFF.md`](docs/HANDOFF.md) · [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md)
 
-Captured per run and aggregated in `summary_by_*` tables: exact-match rate,
-cell-level accuracy, latency, cost estimate, parse/shape error rates.
-Definitions live in `src/DECISIONS.md` (Decision 12).
+---
 
-## Known Limitations
+## Make targets
 
-- The `mock` provider is a deterministic pipeline-testing tool, **not** a
-  scientific baseline; its numbers demonstrate the pipeline, not model skill.
-- Cost estimates come from a static OpenAI price table (0.0 for mock/ollama).
-- Taxonomy v1 is heuristic (histogram-based spatial/symbol split); finer
-  categories (topological, quantitative...) are future work.
-- Inference targets the `test` split only; `transformation_type` labeling of
-  tasks is still a placeholder (`NULL`).
-- Unit tests cover the scoring path (parser, evaluator, taxonomy); the ETL
-  itself is exercised end to end by the smoke test, not by unit tests yet.
+| Target | Action |
+| --- | --- |
+| `make help` | List targets |
+| `make test` / `make smoke` | Verification |
+| `make mvp-offline` | Offline demo pipeline |
+| `make list-packs` / `make list-solvers` | Discovery |
+| `make etl-example-pack` | Bundled tiny pack ETL |
+| `make validate-example-submission` | Example submission check |
+| `make frontend-dev` | Export + Vite |
+| `make public-results` | Observatory compare (default pilot id) |
 
-## Repository Docs
+Operator runbook: [`docs/RUNBOOK.md`](docs/RUNBOOK.md)
 
-- `docs/REVIEW_CHECKLIST.md` — exact commands and expectations for reviewers.
-- `docs/MVP_REMAINING_PLAN.md` — implementation plan for this MVP slice.
-- `src/DECISIONS.md` — technical decision log (ETL + evaluation layers).
-- `agent_context/` — shared conventions, schema contracts, repo map.
+---
+
+## Safety
+
+- Never commit `.env`, API keys, or pack task corpora (`data/`, `benchmark_packs/*/tasks/*.json`).
+- Local pilots ≠ public leaderboard scores.
+- Design log: [`src/DECISIONS.md`](src/DECISIONS.md)
 
 ## License
 
-TBD.
-
-## Status
-
-Working MVP: ETL → mock/real inference → scoring → failure taxonomy →
-analytics tables → report, reproducible offline end to end.
+See [`LICENSE`](LICENSE).

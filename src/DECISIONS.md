@@ -229,8 +229,10 @@ data/parquet/evaluation/
 
 **Caveat for consumers:** A single task's rows live in two separate directories.
 Always load the full dataset and filter in memory, or read both partition paths
-explicitly. See `notebooks/inference_input_reader.py` for a reference
-implementation.
+explicitly. See `load_tasks_dataframe` / `reconstruct_tasks` in
+`src/prompt_builder.py` for the reference implementation (an earlier
+standalone snippet, `notebooks/inference_input_reader.py`, was folded into
+that module and removed in the MVP cleanup — Decision 16).
 
 ---
 
@@ -590,14 +592,364 @@ edge cases; run with `python -m unittest discover -s tests`.
 
 ---
 
+## Decision 14 — Unified configuration layer (ATLAS_* + CLI flags)
+
+**Date:** July 15, 2026
+**Modules:** `src/config.py`, all entrypoints, `.env.example`
+
+### Context
+
+Configuration was scattered: provider credentials via ad-hoc env vars read
+inside `providers.py`, everything else via CLI flags only, and the ETL's
+paths hard-coded. Batch usage (running several models over the same setup)
+needed a way to set defaults once.
+
+### Adopted Decision
+
+One strategy, implemented in `src/config.py` and applied by every
+entrypoint: **CLI flag > `ATLAS_*` environment variable > built-in
+default**. Variables: `ATLAS_PROVIDER`, `ATLAS_MODEL`, `ATLAS_API_KEY`,
+`ATLAS_BASE_URL`, `ATLAS_PROMPT_VERSION`, `ATLAS_EXPERIMENT_ID`,
+`ATLAS_INPUT_PATH`, `ATLAS_OUTPUT_ROOT`, `ATLAS_TIMEOUT_S`,
+`ATLAS_MAX_OUTPUT_TOKENS`.
+
+Rules that make this predictable:
+
+- **Credentials:** the provider-specific variable (`OPENAI_API_KEY`,
+  `GEMINI_API_KEY`/`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`) wins over the
+  generic `ATLAS_API_KEY`, so pre-existing exports keep working. Providers
+  log which variable NAME supplied a credential, never the value.
+- **No dotenv auto-loading.** The pipeline reads `os.environ` only;
+  `.env.example` is a template to copy from, not a file that is read. A
+  stray `.env` can therefore never silently change a run.
+- **`ATLAS_OUTPUT_ROOT`** is the root of the derived tree: the ETL writes
+  `<root>/evaluation[_errors]`, the runner `<root>/inference/runs/<run_id>`,
+  analytics `<root>/analytics`. Unset, each stage keeps its historical
+  anchoring (ETL cwd-relative, runner/analytics repo-relative). Relative
+  values resolve against the cwd.
+- **Hermetic scripts:** `scripts/smoke_test.py` and `scripts/demo_bundle.py`
+  strip `ATLAS_*` from their subprocess environments so exported defaults
+  cannot redirect their fixed inputs/outputs.
+- **Errors are sentences.** Invalid values raise `ConfigError` naming the
+  offending flag/variable and the valid options (e.g. unknown provider,
+  non-numeric timeout).
+- `src/main.py` gained `--input-dir/--output-root/--log-dir` flags with
+  defaults identical to the old hard-coded paths; the frozen tasks schema
+  and transform logic are untouched.
+
+---
+
+## Decision 15 — Gemini and Claude adapters; provider usage in manifests
+
+**Date:** July 15, 2026
+**Modules:** `src/providers.py`, `src/run_inference.py`
+
+### Context
+
+The MVP needed at least two frontier-lab adapters beyond OpenAI-compatible
+gateways, without breaking the stdlib-only rule (Decision 8) or the frozen
+28-column results schema (Decision 10).
+
+### Adopted Decision
+
+**Two new adapters, same contract.** `GeminiProvider` (Generative Language
+API `models/<m>:generateContent`, key sent via `x-goog-api-key` header so it
+never appears in URLs/logs) and `ClaudeProvider` (Anthropic Messages API,
+`anthropic-version: 2023-06-01`). Both normalize into the existing
+`ProviderResponse`, fail at construction with actionable messages when
+unconfigured, and turn per-call failures into `api_error` rows.
+
+**Provider-specific response rules** (isolated in pure, unit-tested
+`extract_gemini_text` / `extract_claude_text` helpers):
+
+- Gemini: `promptFeedback.blockReason` and text-less candidates are errors
+  (the `finishReason` is preserved in the message).
+- Claude: `stop_reason="refusal"` is an error (no grid to score);
+  `stop_reason="max_tokens"` keeps the partial text so the parser/taxonomy
+  classify the truncation. **No sampling parameters are sent** — the newest
+  Anthropic models reject `temperature`/`top_p` with HTTP 400, and the
+  versioned prompt is this pipeline's reproducibility mechanism anyway.
+  `max_tokens` (required by that API) comes from `ATLAS_MAX_OUTPUT_TOKENS`
+  (default 16000).
+- HTTP 529 (Anthropic "overloaded") added to the retryable set.
+
+**Token usage and endpoints are recorded without touching the frozen
+schema.** `ProviderResponse` gained optional `input_tokens`/`output_tokens`
+(reported by all four real providers); the runner aggregates them into the
+run manifest (`total_input_tokens`, `total_output_tokens`) alongside the new
+`base_url` field. Manifests are additive JSON, not governed by the Parquet
+schema freeze — per-row token columns would require an
+`INFERENCE_SCHEMA_VERSION` minor bump and were deliberately deferred.
+
+**Static price tables** (`*_PRICES_PER_MTOK`, checked 2026-07) extend the
+cost-estimate approach to Gemini/Claude; unknown models cost 0.0. Estimates
+remain reporting aids, not billing data.
+
+---
+
+## Decision 16 — Analytics CSV exports and repository cleanup
+
+**Date:** July 15, 2026
+**Modules:** `src/build_analytics.py`, `scripts/demo_bundle.py`,
+`scripts/plot_run_variance.py`
+
+### Context
+
+The agreed MVP outputs include flat CSVs (`summary_by_model.csv`,
+`summary_by_failure_mode.csv`, `summary_by_task.csv`,
+`model_failure_matrix.csv`), but they were produced only inside the demo
+bundle script; the pipeline proper emitted Parquet only. Several files had
+also gone stale.
+
+### Adopted Decision
+
+- `build_analytics.py` now writes the four CSVs to
+  `<analytics>/csv/` on every build (rebuilt like the Parquet tables) and
+  records them in the build manifest (`csv_exports`). The
+  failure-mode × model matrix moved here (`model_failure_matrix`) so there
+  is a single implementation.
+- `demo_bundle.py` copies those CSVs instead of recomputing them, and reads
+  the matrix back from the exported CSV for its heatmap — chart and table
+  cannot disagree.
+- `plot_mistral_variance.py` was generalized into
+  `scripts/plot_run_variance.py` (`--prefix` is now required; output
+  defaults to `artifacts/<prefix>/`, gitignored). Cross-run variance
+  analysis is a capability, not a one-off.
+- Removed stale scaffolding: `docker-compose.yml` (empty `services: {}`)
+  and `notebooks/inference_input_reader.py` (superseded by
+  `src/prompt_builder.py`; docs now point there).
+
+---
+
+## Decision 17 — Solver Evaluation Platform (schema v2, adapters, analytics)
+
+**Date:** July 15, 2026
+**Modules:** `src/contracts.py`, `src/solvers.py`, `src/solver_registry.py`,
+`src/run_evaluation.py`, `src/task_loader.py`, `src/failure_taxonomy.py`,
+`src/build_analytics.py`, `configs/solvers.json`
+
+### Context
+
+The MVP evaluation slice centered on *model/provider* inference. Research
+needs a **solver-agnostic** judge: LLM pipelines, DSL search, program
+synthesis, and offline submission files must share one scoring and analytics
+surface. Real ARC Prize systems are heterogeneous and often batch/notebook
+oriented — the platform must adapt to them, not the reverse.
+
+### Adopted Decision
+
+**Standard Solver Interface.** `BaseSolver.solve(SolverTask) -> SolverResult`
+in `src/solvers.py`, with adapters:
+
+| Adapter | Mode | Role |
+| --- | --- | --- |
+| `LLMDirectSolver` | `in_process` | prompt → `providers.py` backend |
+| `CommandSolver` | `subprocess` | task JSON on stdin → stdout envelope |
+| `HTTPSolver` | `http` | `POST` wire JSON → envelope |
+| `SubmissionFileSolver` | `submission_file` | offline Kaggle-style `submission.json` |
+
+Ground truth is isolated: `SolverTask.to_wire()` never serializes
+`expected_output`. Multi-attempt rows (`attempt` 1..k) support competition
+pass@k semantics.
+
+**Schema v2.0.0.** `EVALUATION_RESULTS_SCHEMA` replaces the 28-column v1
+layout (`LEGACY_INFERENCE_SCHEMA_V1` kept only for in-memory upgrade). New
+identity columns: `solver_name`, `solver_family`, `solver_version`,
+`execution_mode`, plus `raw_output`, `input_tokens`/`output_tokens`,
+`solver_metadata`. LLM lineage (`provider`/`model_name`/`prompt_version`)
+stays nullable for non-LLM families.
+
+**Taxonomy v2.** `api_error` → `execution_error` (solver-neutral). Analytics
+applies `LEGACY_MODE_RENAMES` when loading old runs.
+
+**Registry.** `configs/solvers.json` + built-in `mock-baseline` /
+`mock-large`. Reference solvers ship `enabled: false` with wiring notes.
+
+**Analytics v2.** Summaries rename `summary_by_model` → `summary_by_solver`,
+`model_failure_matrix` → `solver_failure_matrix`, fact table →
+`fact_evaluation_results`. Metrics add `n_items`, `n_attempts`,
+`solved_rate` (item-level any-attempt exact match) alongside attempt-level
+`exact_match_rate`.
+
+**Entrypoint.** `src/run_evaluation.py` is primary; `src/run_inference.py`
+is a deprecation shim.
+
+### Alternatives considered
+
+- Hard-coding NVARC/Icecuber imports — rejected (coupling + heavy deps).
+- Separate codepaths per solver family for scoring — rejected (comparability).
+- Breaking on-disk v1 runs without upgrade path — rejected; upgrade in memory.
+
+---
+
+---
+
+## Decision 18 — Submission-first external onboarding
+
+**Date:** July 15, 2026
+**Modules:** `src/submission_io.py`, `src/submission_cli.py`, `src/solvers.py`,
+`src/solver_registry.py`, `src/run_evaluation.py`, `examples/external_solver/`
+
+### Context
+
+External solver authors already produce Kaggle-style `submission.json` or
+per-task prediction dumps. Asking them to implement `solve(task)` creates
+onboarding friction. The platform should adapt to common ARC artifacts.
+
+### Adopted Decision
+
+**Submission-first official adapters.** `submission_file` and
+`submission_dir` are first-class recommended modes. A normalization layer
+(`submission_io.py`) maps supported shapes into a canonical prediction
+contract (`task_id`, `test_index`, `candidate_rank`, `predicted_grid`,
+`source_format`, `source_path`) with explicit validation errors (no silent
+coercion of broken grids).
+
+**CLI for humans.** `submission_cli.py` exposes `validate-submission`,
+`import-submission`, `score-submission` / `evaluate-submission` without
+requiring knowledge of the full orchestrator.
+
+**Registry ergonomics.** Accept `adapter_type` as alias of `adapter`, and
+`subprocess_cli` as alias of `subprocess`. Relative artifact paths resolve
+against the repo root.
+
+**Examples.** Bundled fixtures under `examples/external_solver/` plus
+`docs/QUICKSTART_EXTERNAL_SOLVER.md`.
+
+### Alternatives considered
+
+- Requiring a Python SDK / BaseSolver subclass — rejected (friction).
+- Auto-coercing ragged grids — rejected (hides solver bugs).
+
+---
+
+## Decision 19 — Public Results Observatory
+
+**Date:** July 15, 2026
+**Modules:** `src/public_results/`, `src/public_results_cli.py`,
+`fixtures/public_results/`
+
+### Context
+
+After a real local NIM pilot, the team needed public ARC Prize / ARC-AGI
+context without re-running external solvers or treating chat-pasted
+leaderboard numbers as data.
+
+### Adopted Decision
+
+A separate observability layer: curated JSON fixtures (+ optional markdown
+table snapshots) → normalize with trust/provenance schema → Parquet →
+comparison report + chart anchored on a local `run_id`.
+
+Live scrape is not default (JS-heavy pages). Local pilots always use
+`comparison_scope=local_pilot_partial` so they are never silently equated
+with full-benchmark public scores.
+
+---
+
+---
+
+## Decision 20 — Benchmark packs + version pinning
+
+**Date:** July 15, 2026
+**Modules:** `src/benchmark_packs.py`, `src/main.py`, `src/task_loader.py`,
+`src/run_evaluation.py`, `src/build_analytics.py`, `benchmark_packs/`
+
+### Context
+
+The evaluator could judge predictions whenever the right tasks were on disk,
+but corpora were not first-class: ETL assumed `data/raw/evaluation/`, and
+`task_version` / ARC-AGI-2 pinning was deferred. Public observatory rows
+already distinguished ARC-AGI-1 vs ARC-AGI-2; local runs did not.
+
+### Adopted Decision
+
+1. **Pack convention** under `benchmark_packs/<pack_id>/` with `manifest.json`
+   + `tasks_dir` (default `tasks/`). Registered ids: `arc_agi_1`, `arc_agi_2`,
+   `example_local_pack`. Any local path with a manifest is also valid.
+2. **ETL v1.2.0** stamps six columns onto tasks Parquet and writes
+   `_benchmark_pack.json`. Legacy `--input-dir` without a pack still works
+   (`pack_id=legacy_raw_dir`, `benchmark_name=ARC-AGI-1`).
+3. **Evaluation schema v2.1.0** carries the same columns on every result row;
+   run manifests include a `benchmark` object.
+4. **Analytics v2.1.0** adds `summary_by_benchmark` (+ CSV). Legacy runs
+   without columns upgrade in memory to `unknown` defaults.
+5. **No auto-fetch** of ARC-AGI-2 / private sets — local populate or symlink.
+
+This supersedes the historical note that `task_version` remained unimplemented:
+pack `benchmark_version` + `pack_id` are the pin.
+
+### Alternatives considered
+
+- Embedding pack metadata only in manifests (not Parquet columns) — rejected;
+  analytics/groupby need columns.
+- Auto-cloning ARC-AGI-2 in `fetch_arc_data.py` — rejected (license / size /
+  non-goal for this slice).
+
+---
+
+## Decision 21 — Scoring semantics (item vs task, pass@k, cell_accuracy)
+
+**Date:** July 15, 2026
+**Modules:** `src/evaluator.py`, `src/build_analytics.py`, `src/contracts.py`,
+`src/solvers.py` (`LLMDirectSolver`), `src/run_evaluation.py`,
+`src/public_results/local_anchor.py`
+
+### Context
+
+Reviewers (and early reports) mixed three different numbers under one label
+"score": attempt-level exact matches, per–test-example pass@k, and ARC's
+official per-task rule (all test outputs correct). LLM-direct historically
+emitted a single sample (pass@1) while submission adapters already carried
+two attempts. Shape-mismatch `cell_accuracy` uses a top-left overlap that is
+useful but easy to over-interpret.
+
+### Adopted Decision
+
+1. **Primary ARC-comparable rate = `task_solved_rate`.**
+   A task is solved iff **every** test example on that task is solved.
+   A test example is solved iff **any** of its attempts is an exact match
+   (pass@k). Public-leaderboard context and observatory local anchors use
+   this granularity.
+
+2. **`solved_rate` stays item-level** — fraction of
+   `(run, task, test_example)` items solved under pass@k. Keep the name;
+   reports must spell out "item-level" vs "task-level".
+
+3. **`exact_match_rate` stays attempt-level** — exact attempt rows / all
+   attempt rows (execution/parse failures count against the rate).
+
+4. **LLM-direct multi-sample is supported** via `n_attempts` /
+   `--attempts` / `ATLAS_ATTEMPTS` (default **1**). Official ARC-AGI style
+   pass@2 is `--attempts 2`. Submissions already encode up to two attempts.
+
+5. **`cell_accuracy` on shape mismatch** = matching cells in the **top-left
+   overlap** / `max(|pred|, |expected|)`. Secondary diagnostic only;
+   `is_exact_match` decides solved/unsolved. Do not rank models on
+   `avg_cell_accuracy` alone.
+
+6. **Analytics schema minor bump** to `2.2.0` adds `n_tasks` +
+   `task_solved_rate` to every summary metric block (Decision 20 stays on
+   evaluation rows / packs).
+
+### Alternatives considered
+
+- Renaming `solved_rate` → `item_solved_rate` (breaking CSV consumers) —
+  rejected; document instead.
+- Changing the default LLM-direct attempts to 2 — rejected for cost /
+  determinism of existing smoke + mock demos; opt-in via flag.
+
+---
+
 ## Deferred Fields (historical note)
 
 > **Superseded on July 15, 2026:** the inference sprint implemented these
-> fields with English names in `INFERENCE_PARQUET_SCHEMA`
-> (`src/contracts.py`): `model_name`, `prompt_version`, `latency_ms`,
-> `cost_estimate_usd`, `is_exact_match`. `attempt`/`task_version` remain
-> unimplemented (single-attempt runs; benchmark version pinned to
-> ARC-AGI-1 master).
+> fields with English names in the former `INFERENCE_PARQUET_SCHEMA`
+> (now `LEGACY_INFERENCE_SCHEMA_V1` / `EVALUATION_RESULTS_SCHEMA` v2):
+> `model_name`, `prompt_version`, `latency_ms`, `cost_estimate_usd`,
+> `is_exact_match`. Multi-attempt support landed in Decision 17 (`attempt`).
+> Benchmark version pinning landed in Decision 20 (`pack_id` /
+> `benchmark_version` via benchmark packs).
 
 | Field | Purpose |
 | --- | --- |
@@ -607,4 +959,4 @@ edge cases; run with `python -m unittest discover -s tests`.
 | `costo` | Cost in USD of the API call |
 | `correcto` | Boolean: does the predicted output match the expected one? |
 | `intento` | Attempt number (for retry or multi-sample strategies) |
-| `task_version` | ARC task file version (in case the benchmark is updated) |
+| `task_version` | Superseded by Decision 20 pack metadata |

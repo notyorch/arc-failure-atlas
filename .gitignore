@@ -1,6 +1,16 @@
 # Ignorar carpetas de datos masivos
 data/
 
+# External ARC-AGI-2 checkouts if someone clones them next to this repo
+ARC-AGI-2/
+
+# Pack task bodies (may be large / licensed). Keep manifests + READMEs + example pack.
+benchmark_packs/arc_agi_1/tasks/*.json
+benchmark_packs/arc_agi_2/tasks/*.json
+
+# Third-party solver trees (do not commit reference clones here)
+submissions_eval/
+
 # Logs de calidad del ETL (generados por ejecución local, no versionar)
 logs/
 
@@ -9,8 +19,10 @@ logs/
 .env.*
 !.env.example
 
-# Experimentos locales ad-hoc (corridas parciales / probes)
-artifacts/mistral_*/
+# Artefactos de experimentos locales (charts/CSVs de scripts/plot_run_variance.py
+# y corridas ad-hoc). Solo artifacts/demo/ se versiona como evidencia.
+artifacts/*
+!artifacts/demo/
 
 # Ignorar archivos temporales de Python
 __pycache__/
@@ -19,3 +31,19 @@ __pycache__/
 # Ignorar entornos virtuales
 .venv/
 venv/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/public/data/overview.json
+
+# Agent / IDE local context — not part of the public academic MVP
+agent_context/
+.cursor/
+.claude/
+.codex/
+.continue/
+.aider*
+AGENTS.md
+CLAUDE.md
+.github/copilot-instructions.md

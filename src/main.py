@@ -1,3 +1,4 @@
+import argparse
 import json
 import hashlib
 import logging
@@ -5,6 +6,18 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime, timezone
 from collections import Counter
+
+import config
+from benchmark_packs import (
+    BenchmarkPackError,
+    attach_benchmark_columns,
+    count_task_files,
+    format_pack_list,
+    legacy_pack,
+    require_tasks_dir,
+    resolve_pack,
+    write_pack_sidecar,
+)
 
 # LOGGING CONFIGURATION
 logging.basicConfig(
@@ -19,13 +32,13 @@ quality_logger = logging.getLogger("arc.quality")
 
 # PIPELINE CONSTANTS
 PROJECT_ROOT     = Path(__file__).resolve().parent.parent
-PIPELINE_VERSION = "1.1.0"
+PIPELINE_VERSION = "1.2.0"  # + benchmark pack metadata columns (Decision 20)
 VALID_SPLITS     = ["train", "test"]
 VALID_ROLES      = ["input", "output"]
 ARC_COLOR_MIN    = 0
 ARC_COLOR_MAX    = 9
 
-# FROZEN SCHEMA — tasks Parquet (effective from 2026-06-29)
+# FROZEN SCHEMA — tasks Parquet (effective from 2026-06-29; pack cols 2026-07-15)
 # Adding, removing, or renaming columns requires team approval.
 # nullable=True means the column may contain NULL values by design.
 TASKS_PARQUET_SCHEMA = {
@@ -44,13 +57,19 @@ TASKS_PARQUET_SCHEMA = {
     "source_path":         {"nullable": False},
     "pipeline_version":    {"nullable": False},
     "ingested_at":         {"nullable": False},
+    # Benchmark pack pin (Decision 20) — always stamped (legacy_raw_dir when
+    # ETL runs without --benchmark-pack).
+    "pack_id":             {"nullable": False},
+    "benchmark_family":    {"nullable": False},
+    "benchmark_name":      {"nullable": False},
+    "benchmark_version":   {"nullable": False},
+    "split_name":          {"nullable": False},  # pack-level, not train/test
+    "task_source":         {"nullable": False},
 }
 
-# ARCHITECTURE NOTE (deferred fields for inference sprint)
-# The following fields will be added when the pipeline ingests
-# responses from AI models (Nvidia, OpenAI, Ollama):
-#   prompt_version, latency_ms, cost, correct, attempt,
-#   inference_timestamp, task_version, model_id
+# ARCHITECTURE NOTE
+# Benchmark pack pinning lives in TASKS_PARQUET_SCHEMA (Decision 20).
+# Inference/evaluation fields live in contracts.EVALUATION_RESULTS_SCHEMA.
 
 # EXTRACTION
 
@@ -423,11 +442,61 @@ def process_folder(input_dir: Path) -> tuple:
 # ENTRY POINT
 
 if __name__ == "__main__":
-    # Paths
-    input_dir  = Path("data/raw/evaluation")
-    output_dir = Path("data/parquet/evaluation")
-    error_dir  = Path("data/parquet/evaluation_errors")
-    log_dir    = Path("logs")
+    # Paths are cwd-relative BY DESIGN (the smoke test runs this module from
+    # an isolated temp dir). Flag > ATLAS_OUTPUT_ROOT > default; with no flags
+    # and no env vars the behavior is identical to earlier versions.
+    parser = argparse.ArgumentParser(
+        description="ARC-AGI base ETL: raw task JSON → validated, "
+                    "Hive-partitioned tasks Parquet (frozen schema).",
+    )
+    parser.add_argument("--input-dir", type=Path, default=None,
+                        help="directory of raw ARC task JSON files "
+                             "(default: data/raw/evaluation, or the selected "
+                             "pack's tasks_dir)")
+    parser.add_argument("--benchmark-pack", default=None,
+                        help="registered pack id under benchmark_packs/ "
+                             f"(e.g. arc_agi_2; or ${config.ENV_BENCHMARK_PACK})")
+    parser.add_argument("--benchmark-pack-path", type=Path, default=None,
+                        help="path to a local pack root (directory with "
+                             "manifest.json) or to the manifest file itself")
+    parser.add_argument("--list-benchmark-packs", action="store_true",
+                        help="print registered packs and exit")
+    parser.add_argument("--output-root", type=Path, default=None,
+                        help="root for evaluation/ and evaluation_errors/ "
+                             f"(default: data/parquet, or ${config.ENV_OUTPUT_ROOT})")
+    parser.add_argument("--log-dir", type=Path, default=Path("logs"),
+                        help="quality-log directory (default: %(default)s)")
+    args = parser.parse_args()
+
+    if args.list_benchmark_packs:
+        print(format_pack_list())
+        raise SystemExit(0)
+
+    try:
+        output_root = args.output_root or config.output_root() or Path("data/parquet")
+        pack_id = config.resolve(args.benchmark_pack, config.ENV_BENCHMARK_PACK)
+    except config.ConfigError as exc:
+        raise SystemExit(f"ERROR: {exc}")
+
+    if args.benchmark_pack_path and pack_id:
+        raise SystemExit(
+            "ERROR: pass only one of --benchmark-pack / --benchmark-pack-path"
+        )
+
+    pack = None
+    if args.benchmark_pack_path or pack_id:
+        try:
+            pack = resolve_pack(pack_id=pack_id, pack_path=args.benchmark_pack_path)
+            input_dir = args.input_dir or require_tasks_dir(pack)
+        except BenchmarkPackError as exc:
+            raise SystemExit(f"ERROR: {exc}")
+    else:
+        input_dir = args.input_dir or Path("data/raw/evaluation")
+        pack = legacy_pack(input_dir)
+
+    output_dir = output_root / "evaluation"
+    error_dir  = output_root / "evaluation_errors"
+    log_dir    = args.log_dir
 
     # Quality log file — one file per run, timestamped to avoid overwriting history.
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -441,11 +510,20 @@ if __name__ == "__main__":
 
     logging.info("=" * 60)
     logging.info(f"STARTING ARC-AGI ETL  |  pipeline_version={PIPELINE_VERSION}")
+    logging.info(
+        "benchmark pack     |  pack_id=%s  name=%s  version=%s",
+        pack.pack_id, pack.benchmark_name, pack.benchmark_version,
+    )
     logging.info(f"Quality log → {log_path}")
     logging.info("=" * 60)
 
     # Pipeline execution
     valid_df, error_df = process_folder(input_dir)
+    meta = pack.metadata()
+    if not valid_df.empty:
+        attach_benchmark_columns(valid_df, meta)
+    if not error_df.empty:
+        attach_benchmark_columns(error_df, meta)
 
     # Enforce frozen schema before any data reaches disk
     if not valid_df.empty:
@@ -468,6 +546,13 @@ if __name__ == "__main__":
         partition_cols=["split", "task_id"],
         label="errors",
     )
+
+    n_tasks = (
+        int(valid_df["task_id"].nunique()) if not valid_df.empty
+        else count_task_files(input_dir)
+    )
+    sidecar = write_pack_sidecar(output_dir, pack, n_tasks=n_tasks)
+    logging.info("Benchmark pack sidecar → %s", sidecar)
 
     logging.info("=" * 60)
     logging.info("ETL FINISHED")

@@ -1,0 +1,36 @@
+{
+  "source_name": "kaggle_public",
+  "source_url": "https://www.kaggle.com/competitions/arc-prize-2025",
+  "benchmark_name": "ARC-AGI-2",
+  "date_observed": "2025-12-01",
+  "_readme": [
+    "Sparse Kaggle-facing public figures. Live Kaggle HTML is login/JS heavy;",
+    "this fixture stores only numbers also corroborated by public writeups.",
+    "Do not scrape private leaderboards."
+  ],
+  "rows": [
+    {
+      "submission_name": "NVARC Kaggle public (ARC Prize 2025)",
+      "team_authors": "NVARC",
+      "model_family": "llm_tta_trm_ensemble",
+      "score": 0.2764,
+      "rank": 1,
+      "verification_status": "verified",
+      "trust_tier": "competition_verified",
+      "split_type": "public",
+      "comparison_scope": "kaggle_contest",
+      "notes": "Public LB score mirrored from public reporting (NVIDIA blog / interviews). Refresh against Kaggle if the contest page is re-checked by a human."
+    },
+    {
+      "submission_name": "Kaggle systems class (efficiency note)",
+      "team_authors": "ARC Prize documentation",
+      "model_family": "kaggle_system",
+      "score": 0.0,
+      "verification_status": "preview",
+      "trust_tier": "preview",
+      "split_type": "preview",
+      "comparison_scope": "kaggle_contest",
+      "notes": "Sentinel row: Kaggle systems operate under ~$50 compute / 120-task style constraints per ARC Prize leaderboard explainer. Score left at 0 as a documentation anchor, not a measured system."
+    }
+  ]
+}

@@ -1,14 +1,11 @@
-[build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+# Project metadata only. This repository is an APPLICATION run from source
+# (`python src/<entrypoint>.py`, see README) — it is not built or published
+# as a package, so no build-system/packaging configuration is declared.
+# Install dependencies with `pip install -r requirements.txt`.
 
 [project]
 name = "arc-failure-atlas"
-version = "0.0.0"
-description = "ARC-AGI failure analysis pipeline"
+version = "0.1.0"
+description = "Reproducible ARC Solver Evaluation Platform for heterogeneous ARC-AGI research"
 requires-python = ">=3.11"
 readme = "README.md"
-dependencies = []
-
-[tool.setuptools]
-package-dir = {"" = "src"}

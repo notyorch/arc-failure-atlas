@@ -40,6 +40,13 @@ class TestParseResponse(unittest.TestCase):
         self.assertEqual(result.parse_status, PARSE_OK)
         self.assertEqual(result.predicted_grid_obj, [[5, 5], [5, 5]])
 
+    def test_prefers_last_valid_grid(self):
+        result = parse_response(
+            "maybe [[1,1],[1,1]] but final answer [[9,9],[9,9]]"
+        )
+        self.assertEqual(result.parse_status, PARSE_OK)
+        self.assertEqual(result.predicted_grid_obj, [[9, 9], [9, 9]])
+
     def test_integral_floats_are_normalized(self):
         result = parse_response("[[1.0, 2.0], [3.0, 4.0]]")
         self.assertEqual(result.parse_status, PARSE_OK)

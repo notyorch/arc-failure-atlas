@@ -1,0 +1,64 @@
+{
+  "source_name": "arc_community",
+  "source_url": "https://arcprize.org/leaderboard",
+  "benchmark_name": "ARC-AGI-2",
+  "date_observed": "2025-12-01",
+  "_readme": [
+    "Community / competition-adjacent scores that are publicly discussed.",
+    "Many community numbers are self-reported unless an official note says otherwise.",
+    "NVARC / ARChitects figures cross-checked against ARC Prize 2025 competition page + NVIDIA blog."
+  ],
+  "rows": [
+    {
+      "submission_name": "NVARC (ARC Prize 2025, private)",
+      "team_authors": "NVARC (Ivan Sorokin, Jean-Francois Puget et al.)",
+      "model_family": "llm_tta_trm_ensemble",
+      "score": 0.2403,
+      "rank": 1,
+      "cost_per_task_usd": 0.20,
+      "verification_status": "verified",
+      "trust_tier": "competition_verified",
+      "split_type": "private",
+      "comparison_scope": "kaggle_contest",
+      "n_tasks": null,
+      "notes": "ARC-AGI-2 private ~24.03% under contest constraints; public ~27.64% cited in interviews/NVIDIA blog. Different benchmark generation than ARC-AGI-1."
+    },
+    {
+      "submission_name": "NVARC (ARC Prize 2025, public LB)",
+      "team_authors": "NVARC",
+      "model_family": "llm_tta_trm_ensemble",
+      "score": 0.2764,
+      "rank": 1,
+      "cost_per_task_usd": 0.20,
+      "verification_status": "verified",
+      "trust_tier": "competition_verified",
+      "split_type": "public",
+      "comparison_scope": "kaggle_contest",
+      "notes": "Kaggle public leaderboard figure for ARC Prize 2025 / ARC-AGI-2."
+    },
+    {
+      "submission_name": "MindsAI (ARC Prize 2025)",
+      "team_authors": "MindsAI",
+      "model_family": "test_time_training",
+      "score": 0.1542,
+      "rank": 3,
+      "verification_status": "verified",
+      "trust_tier": "competition_verified",
+      "split_type": "private",
+      "comparison_scope": "kaggle_contest",
+      "notes": "Cited on arcprize.org/competitions/2025 top scores (~15.42% ARC-AGI-2)."
+    },
+    {
+      "submission_name": "Example self-reported community entry",
+      "team_authors": "anonymous community",
+      "model_family": "unknown",
+      "score": 0.42,
+      "verification_status": "self_reported",
+      "trust_tier": "self_reported",
+      "split_type": "public",
+      "comparison_scope": "unknown",
+      "n_tasks": null,
+      "notes": "PLACEHOLDER illustrating self_reported trust tier — replace/remove when refreshing fixtures. Not an official ARC Prize result."
+    }
+  ]
+}

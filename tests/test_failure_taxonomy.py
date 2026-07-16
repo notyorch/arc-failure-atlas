@@ -1,4 +1,5 @@
-"""Unit tests for src/failure_taxonomy.py — run from the repo root:
+"""
+Unit tests for src/failure_taxonomy.py — run from the repo root:
 
     python -m unittest discover -s tests -v
 """
@@ -10,7 +11,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from evaluator import evaluate_prediction  # noqa: E402
-from failure_taxonomy import FAILURE_MODES, classify_failure  # noqa: E402
+from failure_taxonomy import (  # noqa: E402
+    FAILURE_MODES,
+    LEGACY_MODE_RENAMES,
+    classify_failure,
+)
 from grid_parser import (  # noqa: E402
     PARSE_EMPTY,
     PARSE_INVALID_GRID,
@@ -21,26 +26,26 @@ from grid_parser import (  # noqa: E402
 EXPECTED = [[1, 2], [3, 4]]
 
 
-def classify(provider_status="ok", parse_status=PARSE_OK, predicted=None,
-             expected=EXPECTED, provider_error=None, parse_error=None):
+def classify(solver_status="ok", parse_status=PARSE_OK, predicted=None,
+             expected=EXPECTED, solver_error=None, parse_error=None):
     """Small harness: evaluation is derived exactly as the runner does it."""
     evaluation = evaluate_prediction(predicted, expected)
     return classify_failure(
-        provider_status=provider_status,
+        solver_status=solver_status,
         parse_status=parse_status,
         evaluation=evaluation,
         predicted_grid=predicted,
         expected_grid=expected,
-        provider_error=provider_error,
+        solver_error=solver_error,
         parse_error=parse_error,
     )
 
 
 class TestRuleOrder(unittest.TestCase):
-    def test_api_error_wins_over_everything(self):
-        mode, detail = classify(provider_status="error",
-                                provider_error="HTTP 500")
-        self.assertEqual(mode, "api_error")
+    def test_execution_error_wins_over_everything(self):
+        mode, detail = classify(solver_status="error",
+                                solver_error="HTTP 500")
+        self.assertEqual(mode, "execution_error")
         self.assertEqual(detail, "HTTP 500")
 
     def test_empty_response(self):
@@ -84,15 +89,18 @@ class TestOutcomeModes(unittest.TestCase):
 
 
 class TestVocabulary(unittest.TestCase):
-    def test_modes_are_the_frozen_v1_set(self):
+    def test_modes_are_the_frozen_v2_set(self):
         self.assertEqual(FAILURE_MODES, [
-            "exact_match", "api_error", "empty_response", "parse_error",
+            "exact_match", "execution_error", "empty_response", "parse_error",
             "shape_error", "spatial_error", "symbol_error", "unknown_error",
         ])
 
+    def test_legacy_api_error_rename(self):
+        self.assertEqual(LEGACY_MODE_RENAMES, {"api_error": "execution_error"})
+
     def test_all_classified_modes_are_in_vocabulary(self):
         cases = [
-            classify(provider_status="error"),
+            classify(solver_status="error"),
             classify(parse_status=PARSE_EMPTY),
             classify(parse_status=PARSE_NO_JSON),
             classify(predicted=[[1, 2], [3, 4]]),

@@ -2,24 +2,25 @@
 Build a presentation-ready demo bundle at artifacts/demo/.
 
 Runs the offline mock pipeline end to end (sample data → ETL → two mock
-runs → analytics + report), then exports CSV summaries and PNG charts:
+solver evaluations → analytics + report), copies the analytics CSV exports,
+and renders PNG charts:
 
     artifacts/demo/
       README.md                        what's here + 5-minute demo flow
       mvp_report.md                    copy of the regenerated report
       analytics_manifest.json          provenance (git SHA, runs, versions)
-      csv/summary_by_model.csv
+      csv/summary_by_solver.csv
       csv/summary_by_failure_mode.csv
       csv/summary_by_task.csv
-      csv/model_failure_matrix.csv
-      charts/accuracy_by_model.png
+      csv/solver_failure_matrix.csv
+      charts/accuracy_by_solver.png
       charts/failure_mode_distribution.png
-      charts/latency_by_model.png
-      charts/model_failure_matrix.png
+      charts/latency_by_solver.png
+      charts/solver_failure_matrix.png
 
 Offline-first and deterministic: only bundled sample tasks are required
 (any ARC tasks already in data/raw/evaluation/ are included too), the mock
-provider is hash-deterministic per (model, task), and each bundle uses its
+backends are hash-deterministic per (solver, task), and each bundle uses its
 own experiment id (demo-<UTC ts>) so metrics never mix with earlier runs.
 
     python scripts/demo_bundle.py          # ~15 s, offline
@@ -27,6 +28,7 @@ own experiment id (demo-<UTC ts>) so metrics never mix with earlier runs.
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -34,12 +36,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "src"))
 
 DEMO_DIR = REPO_ROOT / "artifacts" / "demo"
 ANALYTICS_DIR = REPO_ROOT / "data" / "parquet" / "analytics"
 REPORT_PATH = REPO_ROOT / "reports" / "mvp_report.md"
-MOCK_MODELS = ["baseline", "mock-large"]
+MOCK_SOLVERS = ["mock-baseline", "mock-large"]
+
+# The bundle is a curated offline demo with fixed paths: strip ATLAS_*
+# variables so an exported provider/output-root cannot redirect the
+# pipeline steps away from the locations this script reads back.
+SUBPROCESS_ENV = {k: v for k, v in os.environ.items()
+                  if not k.startswith("ATLAS_")}
 
 # Chart chrome — reference dataviz palette (light mode, validated set).
 SURFACE = "#fcfcfb"
@@ -55,7 +62,8 @@ SEQ_LOW, SEQ_HIGH = "#cde2fb", "#0d366b"   # sequential blue ramp endpoints
 
 def run_step(name: str, cmd: list) -> None:
     print(f"[{name}] $ {' '.join(str(c) for c in cmd)}")
-    result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+    result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True,
+                            env=SUBPROCESS_ENV)
     if result.returncode != 0:
         print(result.stdout)
         print(result.stderr, file=sys.stderr)
@@ -64,15 +72,15 @@ def run_step(name: str, cmd: list) -> None:
 
 
 def run_pipeline(experiment_id: str) -> None:
-    """Sample data → ETL → two mock runs → analytics filtered to this bundle."""
+    """Sample data → ETL → two mock solver runs → analytics for this bundle."""
     py = sys.executable
     run_step("fetch-sample",
              [py, "scripts/fetch_arc_data.py", "--sample"])
     run_step("etl", [py, "src/main.py"])
-    for model in MOCK_MODELS:
-        run_step(f"infer-mock:{model}", [
-            py, "src/run_inference.py", "--provider", "mock",
-            "--model", model, "--experiment-id", experiment_id,
+    for solver in MOCK_SOLVERS:
+        run_step(f"eval:{solver}", [
+            py, "src/run_evaluation.py", "--solver", solver,
+            "--experiment-id", experiment_id,
         ])
     run_step("analytics", [
         py, "src/build_analytics.py", "--experiment-id", experiment_id,
@@ -106,16 +114,16 @@ def save(fig, path: Path) -> None:
     print(f"  chart → {path.relative_to(REPO_ROOT)}")
 
 
-def chart_accuracy_by_model(plt, by_model, out: Path) -> None:
-    data = by_model.sort_values("model_name")
-    labels = data["model_name"].astype(str).tolist()
+def chart_accuracy_by_solver(plt, by_solver, out: Path) -> None:
+    data = by_solver.sort_values("solver_name")
+    labels = data["solver_name"].astype(str).tolist()
     x = range(len(labels))
     width = 0.26
 
     fig, ax = new_axes(
-        plt, "Accuracy by model",
-        "Exact-match rate counts every row; cell accuracy averages valid "
-        "predictions only. Mock models demo the pipeline, not skill.",
+        plt, "Accuracy by solver",
+        "Exact-match rate is attempt-level; solved_rate (not shown) is "
+        "item-level pass@k. Mock solvers demo the platform, not skill.",
         figsize=(7, 4.5),
     )
     ax.grid(axis="y", color=GRIDLINE, linewidth=0.8)
@@ -142,15 +150,15 @@ def chart_accuracy_by_model(plt, by_model, out: Path) -> None:
 
 
 def chart_failure_modes(plt, by_mode, total_rows: int, out: Path) -> None:
-    data = by_mode.sort_values(["total_runs", "failure_mode"],
+    data = by_mode.sort_values(["n_attempts", "failure_mode"],
                                ascending=[True, False])
     labels = data["failure_mode"].astype(str).tolist()
-    counts = data["total_runs"].tolist()
+    counts = data["n_attempts"].tolist()
 
     fig, ax = new_axes(
         plt, "Failure mode distribution",
-        f"All modes across {total_rows} scored rows (both mock models); "
-        "exact_match is the success bucket.",
+        f"All modes across {total_rows} scored attempt rows (both mock "
+        "solvers); exact_match is the success bucket.",
         figsize=(8, 4.8),
     )
     ax.grid(axis="x", color=GRIDLINE, linewidth=0.8)
@@ -171,15 +179,15 @@ def chart_failure_modes(plt, by_mode, total_rows: int, out: Path) -> None:
     plt.close(fig)
 
 
-def chart_latency_by_model(plt, by_model, out: Path) -> None:
-    data = by_model.sort_values("model_name")
-    labels = data["model_name"].astype(str).tolist()
+def chart_latency_by_solver(plt, by_solver, out: Path) -> None:
+    data = by_solver.sort_values("solver_name")
+    labels = data["solver_name"].astype(str).tolist()
     values = data["avg_latency_ms"].tolist()
 
     fig, ax = new_axes(
-        plt, "Average latency by model",
-        "Milliseconds per inference call. Mock latency is synthetic and "
-        "deterministic; real providers report wall-clock time.",
+        plt, "Average latency by solver",
+        "Milliseconds per evaluation item. Mock latency is synthetic and "
+        "deterministic; real backends report wall-clock time.",
         figsize=(6, 4.2),
     )
     ax.grid(axis="y", color=GRIDLINE, linewidth=0.8)
@@ -198,22 +206,22 @@ def chart_latency_by_model(plt, by_model, out: Path) -> None:
     plt.close(fig)
 
 
-def chart_model_failure_matrix(plt, matrix, out: Path):
-    """Heatmap: failure_mode rows × model columns, annotated counts."""
+def chart_solver_failure_matrix(plt, matrix, out: Path):
+    """Heatmap: failure_mode rows × solver columns, annotated counts."""
     from matplotlib.colors import LinearSegmentedColormap
 
     cmap = LinearSegmentedColormap.from_list("seq_blue", [SEQ_LOW, SEQ_HIGH])
     fig, ax = new_axes(
-        plt, "Failure mode × model (row counts)",
-        "Compact comparison of error types per model over the same tasks.",
+        plt, "Failure mode × solver (row counts)",
+        "Compact comparison of error types per solver over the same tasks.",
         figsize=(7, 4.8),
     )
     ax.spines["bottom"].set_visible(False)
     mesh = ax.pcolormesh(matrix.values, cmap=cmap, vmin=0,
                          edgecolors=SURFACE, linewidth=2)
     vmax = matrix.values.max() or 1
-    for i, mode in enumerate(matrix.index):
-        for j, _model in enumerate(matrix.columns):
+    for i, _mode in enumerate(matrix.index):
+        for j, _solver in enumerate(matrix.columns):
             value = int(matrix.iat[i, j])
             dark_cell = (value / vmax) > 0.55
             ax.text(j + 0.5, i + 0.5, str(value), ha="center", va="center",
@@ -230,67 +238,59 @@ def chart_model_failure_matrix(plt, matrix, out: Path):
 
 # BUNDLE ASSEMBLY
 
-def export_csvs(pd, fact, by_model, by_mode, by_task, csv_dir: Path):
-    csv_dir.mkdir(parents=True, exist_ok=True)
-    exports = {
-        "summary_by_model.csv": by_model.sort_values("model_name"),
-        "summary_by_failure_mode.csv":
-            by_mode.sort_values(["total_runs", "failure_mode"],
-                                ascending=[False, True]),
-        "summary_by_task.csv": by_task.sort_values("task_id"),
-    }
-    matrix = (
-        fact.assign(failure_mode=fact["failure_mode"].fillna("not_classifiable"))
-        .pivot_table(index="failure_mode", columns="model_name",
-                     values="run_id", aggfunc="count", fill_value=0,
-                     observed=True)
-        .sort_index()
-    )
-    matrix.columns = [str(c) for c in matrix.columns]
-    exports["model_failure_matrix.csv"] = matrix.reset_index()
-
-    for name, frame in exports.items():
-        frame.to_csv(csv_dir / name, index=False)
-        print(f"  csv   → {(csv_dir / name).relative_to(REPO_ROOT)}")
-    return matrix
+def copy_csv_exports(pd, csv_src: Path, csv_dir: Path):
+    """
+    Copy the CSVs that build_analytics already exported (single source of
+    truth — this script no longer recomputes them). Returns the
+    failure-mode × solver matrix for the heatmap chart, read back from the
+    same CSV so chart and table can never disagree.
+    """
+    if not csv_src.exists():
+        sys.exit(f"ERROR: analytics CSV exports not found at {csv_src}. "
+                 "Run `python src/build_analytics.py` first "
+                 "(or drop --skip-pipeline).")
+    shutil.copytree(csv_src, csv_dir)
+    for path in sorted(csv_dir.glob("*.csv")):
+        print(f"  csv   → {path.relative_to(REPO_ROOT)}")
+    return pd.read_csv(csv_dir / "solver_failure_matrix.csv",
+                       index_col="failure_mode")
 
 
 def write_demo_readme(experiment_id: str, n_tasks: int, n_rows: int) -> None:
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    (DEMO_DIR / "README.md").write_text(f"""# ARC Failure Atlas — Demo Bundle
+    (DEMO_DIR / "README.md").write_text(f"""# ARC Solver Evaluation Platform — Demo Bundle
 
 Generated by `python scripts/demo_bundle.py` on {generated}
 (experiment `{experiment_id}`, {n_tasks} tasks, {n_rows} scored rows,
-two deterministic mock models — fully offline).
+two deterministic mock solvers — fully offline).
 
 ## Contents
 
 | File | Show it when you say... |
 | --- | --- |
 | `mvp_report.md` | "here is the generated evaluation report" |
-| `charts/accuracy_by_model.png` | "we score every prediction cell by cell" |
+| `charts/accuracy_by_solver.png` | "we score every prediction cell by cell" |
 | `charts/failure_mode_distribution.png` | "failures get a deterministic taxonomy label" |
-| `charts/model_failure_matrix.png` | "and we can compare error types across models" |
-| `charts/latency_by_model.png` | "latency and cost are captured per call" |
+| `charts/solver_failure_matrix.png` | "and we can compare error types across solvers" |
+| `charts/latency_by_solver.png` | "latency and cost are captured per call" |
 | `csv/*.csv` | "summaries are plain tables — Excel/BI ready" |
 | `analytics_manifest.json` | "every artifact traces to a git commit and run" |
 
 ## 5-minute demo flow
 
-1. **The problem (30 s)** — we study *how* LLMs fail on ARC-AGI, not how to
-   solve it. README top + architecture diagram.
-2. **The pipeline (1 min)** — raw JSON → frozen-schema Parquet → prompts →
-   provider → grid parsing → scoring → failure taxonomy → analytics.
-   Everything here ran offline with the deterministic mock provider.
-3. **The report (1.5 min)** — open `mvp_report.md`: metrics by model,
-   failure-mode distribution, three concrete example failures with
-   expected vs predicted grids.
-4. **The charts (1.5 min)** — accuracy, failure modes, model × failure
+1. **The problem (30 s)** — we evaluate *heterogeneous ARC solvers* under one
+   protocol, not how to solve ARC. README top + architecture diagram.
+2. **The pipeline (1 min)** — raw JSON → frozen-schema Parquet → solver
+   adapter → parse → score → failure taxonomy → analytics. Everything here
+   ran offline with deterministic mock solvers.
+3. **The report (1.5 min)** — open `mvp_report.md`: metrics by solver,
+   failure-mode distribution, concrete example failures.
+4. **The charts (1.5 min)** — accuracy, failure modes, solver × failure
    matrix, latency. Same numbers as the CSVs and Parquet tables.
 5. **Reproducibility (30 s)** — `analytics_manifest.json`: git SHA, run
    ids, schema versions. Rerun `python scripts/demo_bundle.py` → same
-   metrics. Swap `--provider mock` for `openai`/`ollama` and the same
-   pipeline evaluates real models.
+   metrics. Swap `--solver mock-baseline` for a real registry entry or
+   `--provider`/`--model` and the same platform evaluates it.
 
 ## Regenerate
 
@@ -298,7 +298,7 @@ two deterministic mock models — fully offline).
 python scripts/demo_bundle.py
 ```
 
-Mock results are deterministic per (model, task); rerunning changes only
+Mock results are deterministic per (solver, task); rerunning changes only
 run ids and timestamps. With network, add more real tasks first:
 `python scripts/fetch_arc_data.py --limit 20`.
 """, encoding="utf-8")
@@ -324,25 +324,24 @@ def main() -> None:
     if not args.skip_pipeline:
         run_pipeline(experiment_id)
 
-    fact = pd.read_parquet(ANALYTICS_DIR / "fact_inference_results")
-    by_model = pd.read_parquet(ANALYTICS_DIR / "summary_by_model")
+    fact = pd.read_parquet(ANALYTICS_DIR / "fact_evaluation_results")
+    by_solver = pd.read_parquet(ANALYTICS_DIR / "summary_by_solver")
     by_mode = pd.read_parquet(ANALYTICS_DIR / "summary_by_failure_mode")
-    by_task = pd.read_parquet(ANALYTICS_DIR / "summary_by_task")
 
     if DEMO_DIR.exists():
         shutil.rmtree(DEMO_DIR)
     DEMO_DIR.mkdir(parents=True)
 
     print("\nExporting bundle:")
-    matrix = export_csvs(pd, fact, by_model, by_mode, by_task, DEMO_DIR / "csv")
+    matrix = copy_csv_exports(pd, ANALYTICS_DIR / "csv", DEMO_DIR / "csv")
 
     charts = DEMO_DIR / "charts"
-    chart_accuracy_by_model(plt, by_model, charts / "accuracy_by_model.png")
+    chart_accuracy_by_solver(plt, by_solver, charts / "accuracy_by_solver.png")
     chart_failure_modes(plt, by_mode, len(fact),
                         charts / "failure_mode_distribution.png")
-    chart_latency_by_model(plt, by_model, charts / "latency_by_model.png")
-    chart_model_failure_matrix(plt, matrix,
-                               charts / "model_failure_matrix.png")
+    chart_latency_by_solver(plt, by_solver, charts / "latency_by_solver.png")
+    chart_solver_failure_matrix(plt, matrix,
+                                charts / "solver_failure_matrix.png")
 
     shutil.copy2(REPORT_PATH, DEMO_DIR / "mvp_report.md")
     shutil.copy2(ANALYTICS_DIR / "_manifest.json",

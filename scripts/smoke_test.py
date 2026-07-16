@@ -1,19 +1,20 @@
 """
-End-to-end smoke test: ETL → mock inference → analytics on a tiny subset.
+End-to-end smoke test: ETL → mock evaluation → analytics on a tiny subset.
 
 Runs the three real CLIs (subprocesses, same interpreter) against an
 isolated temporary directory, so it never touches data/ in the repository.
-Fully offline: uses 3 bundled sample tasks and the mock provider.
+Fully offline: uses 3 bundled sample tasks and the mock-baseline solver.
 
     python scripts/smoke_test.py            # ~10 s, exit 0 on PASS
     python scripts/smoke_test.py --keep     # keep the temp dir for inspection
 
-Checks: task Parquet row counts, inference row count + manifest, the four
-analytics tables + build manifest, and the generated report.
+Checks: task Parquet row counts, evaluation row count + manifest, the four
+analytics tables + CSV exports + build manifest, and the generated report.
 """
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -27,14 +28,20 @@ SAMPLES_DIR = REPO_ROOT / "tests" / "fixtures" / "sample_tasks"
 N_TASKS = 3
 # Per sample task: 2 train examples (input+output) + 1 test (input+output).
 EXPECTED_TASK_ROWS = N_TASKS * 6
-MODEL_NAME = "smoke"
+
+# The smoke test must be hermetic: a user's exported ATLAS_* variables
+# (output root, experiment id, provider...) must not leak into the
+# subprocesses and redirect their inputs/outputs outside the temp dir.
+SUBPROCESS_ENV = {k: v for k, v in os.environ.items()
+                  if not k.startswith("ATLAS_")}
 
 _checks_passed = 0
 
 
 def run_step(name: str, cmd: list, cwd: Path) -> None:
     print(f"\n[{name}] $ {' '.join(str(c) for c in cmd)}")
-    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+                            env=SUBPROCESS_ENV)
     if result.returncode != 0:
         print(result.stdout)
         print(result.stderr, file=sys.stderr)
@@ -81,28 +88,45 @@ def main() -> None:
         check("tasks Parquet row count",
               len(tasks) == EXPECTED_TASK_ROWS,
               f"expected {EXPECTED_TASK_ROWS}, got {len(tasks)}")
-        check("tasks Parquet has 15 columns", len(tasks.columns) == 15)
+        check("tasks Parquet has pack metadata columns",
+              len(tasks.columns) == 21,
+              f"expected 21 columns, got {len(tasks.columns)}")
+        check("legacy pack stamp present",
+              (tasks["pack_id"] == "legacy_raw_dir").all()
+              and (tasks["benchmark_name"] == "ARC-AGI-1").all())
+        check("benchmark pack sidecar written",
+              (tasks_parquet / "_benchmark_pack.json").is_file())
 
-        # 3. Mock inference.
+        # 3. Mock solver evaluation via registry.
         run_dir = workdir / "runs" / "smoke-run"
-        run_step("infer-mock", [
-            sys.executable, str(REPO_ROOT / "src" / "run_inference.py"),
-            "--provider", "mock", "--model", MODEL_NAME,
+        run_step("eval-mock", [
+            sys.executable, str(REPO_ROOT / "src" / "run_evaluation.py"),
+            "--solver", "mock-baseline",
             "--experiment-id", "smoke",
             "--input-path", str(tasks_parquet),
             "--output-path", str(run_dir),
         ], cwd=workdir)
         results = pd.read_parquet(run_dir)
-        check("inference row count", len(results) == N_TASKS,
+        check("evaluation row count", len(results) == N_TASKS,
               f"expected {N_TASKS}, got {len(results)}")
+        check("solver_name stamped",
+              (results["solver_name"] == "mock-baseline").all())
         check("all rows have a failure_mode",
               results["failure_mode"].notna().all())
+        check("benchmark metadata on evaluation rows",
+              (results["pack_id"] == "legacy_raw_dir").all()
+              and (results["benchmark_name"] == "ARC-AGI-1").all())
         manifest = json.loads((run_dir / "_manifest.json").read_text())
+        solver = manifest.get("solver") or {}
         check("run manifest completed",
               manifest["status"] == "completed"
               and manifest["n_rows_written"] == N_TASKS
-              and manifest["provider"] == "mock"
-              and manifest["prompt_version"] == "arc_grid_v1")
+              and manifest.get("manifest_kind") == "evaluation_run"
+              and solver.get("provider") == "mock"
+              and solver.get("prompt_version") == "arc_grid_v1")
+        check("run manifest includes benchmark block",
+              isinstance(manifest.get("benchmark"), dict)
+              and manifest["benchmark"].get("pack_id") == "legacy_raw_dir")
 
         # 4. Analytics + report.
         analytics_dir = workdir / "analytics"
@@ -113,20 +137,34 @@ def main() -> None:
             "--output-path", str(analytics_dir),
             "--report-path", str(report_path),
         ], cwd=workdir)
-        for table in ("fact_inference_results", "summary_by_model",
-                      "summary_by_failure_mode", "summary_by_task"):
+        for table in ("fact_evaluation_results", "summary_by_solver",
+                      "summary_by_failure_mode", "summary_by_task",
+                      "summary_by_benchmark"):
             frame = pd.read_parquet(analytics_dir / table)
             check(f"analytics table {table} non-empty", len(frame) > 0)
-        fact = pd.read_parquet(analytics_dir / "fact_inference_results")
+        for name in ("summary_by_solver.csv", "summary_by_failure_mode.csv",
+                     "summary_by_task.csv", "summary_by_benchmark.csv",
+                     "solver_failure_matrix.csv"):
+            csv_path = analytics_dir / "csv" / name
+            check(f"csv export {name} present",
+                  csv_path.exists() and csv_path.stat().st_size > 0)
+        fact = pd.read_parquet(analytics_dir / "fact_evaluation_results")
         check("fact table row count", len(fact) == N_TASKS)
+        by_solver = pd.read_parquet(analytics_dir / "summary_by_solver")
+        check("summary exposes task_solved_rate",
+              "task_solved_rate" in by_solver.columns
+              and "n_tasks" in by_solver.columns)
+        report_text = report_path.read_text(encoding="utf-8")
+        check("report names task_solved_rate",
+              "task_solved_rate" in report_text)
         build_manifest = json.loads(
             (analytics_dir / "_manifest.json").read_text())
         check("analytics manifest completed",
               build_manifest["status"] == "completed"
-              and build_manifest["tables"]["fact_inference_results"] == N_TASKS)
+              and build_manifest["tables"]["fact_evaluation_results"] == N_TASKS)
         check("report generated",
               report_path.exists()
-              and "ARC Failure Atlas" in report_path.read_text(encoding="utf-8"))
+              and "ARC Solver Evaluation Platform" in report_text)
 
         elapsed = time.perf_counter() - started
         print(f"\nSMOKE PASS — {_checks_passed} checks in {elapsed:.1f}s")

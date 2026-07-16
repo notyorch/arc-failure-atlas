@@ -1,0 +1,14 @@
+{
+  "pack_id": "arc_agi_2",
+  "benchmark_family": "arc_agi",
+  "benchmark_name": "ARC-AGI-2",
+  "benchmark_version": "local-pack-v1",
+  "task_source": "manual_local_import",
+  "split_name": "public_eval",
+  "tasks_dir": "tasks",
+  "task_count": 120,
+  "task_format": "arc_json",
+  "task_id_pattern": "arc_agi_2_task_id",
+  "license_or_usage_notes": "Local research pack. Full ARC-AGI-2 evaluation JSON is not auto-fetched and may not be committed. Place or symlink public evaluation tasks under tasks/ (same flat *.json layout as ARC-AGI-2/data/evaluation/).",
+  "notes": "Versioned ARC-AGI-2 pack for solver submissions. Populate tasks/ before ETL."
+}

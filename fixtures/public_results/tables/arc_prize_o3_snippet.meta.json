@@ -1,0 +1,10 @@
+{
+  "source_name": "arc_prize_official_table_snapshot",
+  "source_url": "https://arcprize.org/blog/oai-o3-pub-breakthrough",
+  "benchmark_name": "ARC-AGI-1",
+  "date_observed": "2025-04-16",
+  "verification_status": "verified",
+  "trust_tier": "official_verified",
+  "comparison_scope": "semi_private_100",
+  "n_tasks": 100
+}

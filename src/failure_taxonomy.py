@@ -1,23 +1,29 @@
 """
-Failure taxonomy v1 — deterministic heuristic classification of one
-inference result into exactly one mode.
+Failure taxonomy v2 — deterministic heuristic classification of one
+evaluation result into exactly one mode. Solver-agnostic: the same rules
+judge an LLM completion, a subprocess solver's stdout, or a submission-file
+attempt.
 
 Modes (stable vocabulary, stored in the `failure_mode` column):
     exact_match     — prediction equals ground truth cell for cell
-    api_error       — provider call failed (no response to judge)
-    empty_response  — provider replied with empty/whitespace text
-    parse_error     — text present but no valid ARC grid extractable
+    execution_error — the solver never produced a judgeable output
+                      (API failure, subprocess crash/timeout, HTTP error).
+                      v1 called this `api_error`; renamed for solver
+                      neutrality in v2 (Decision 17).
+    empty_response  — solver replied with empty/whitespace output
+    parse_error     — output present but no valid ARC grid extractable
     shape_error     — valid grid, wrong dimensions
     spatial_error   — right shape AND right color histogram, cells misplaced
-                      (the model moved content around incorrectly)
-    symbol_error    — right shape, wrong color histogram
-                      (the model used the wrong symbols/colors)
+                      (content moved around incorrectly — transformation/
+                      placement failure)
+    symbol_error    — right shape, wrong color histogram (wrong/hallucinated
+                      symbols)
     unknown_error   — defensive fallback; should not occur in practice
 
 Classification is rule-ordered (first hit wins) and uses only the row's own
 data, so re-running classification on stored rows is reproducible:
 
-    1. provider status != ok                        -> api_error
+    1. solver status != ok                          -> execution_error
     2. parse_status == empty_response               -> empty_response
     3. parse_status in {no_json_array,invalid_grid} -> parse_error
     4. no ground truth available                    -> None (not classifiable)
@@ -29,17 +35,22 @@ data, so re-running classification on stored rows is reproducible:
 
 Note: `exact_match` is included as a taxonomy outcome so the distribution
 over ALL rows sums to 100% (success is just another bucket in the atlas).
+Finer reasoning-level categories (abstraction failures, wrong-rule-applied,
+near-miss program synthesis...) are future taxonomy v3 work and would need
+task/transformation labels the platform does not have yet.
 """
 
 from typing import Optional, Tuple
 
 from evaluator import EvalResult, color_histogram
 from grid_parser import PARSE_EMPTY, PARSE_INVALID_GRID, PARSE_NO_JSON, PARSE_OK
-from providers import STATUS_OK
+
+# Kept in sync with providers.STATUS_OK / solvers: "ok" is the only success.
+_STATUS_OK = "ok"
 
 FAILURE_MODES = [
     "exact_match",
-    "api_error",
+    "execution_error",
     "empty_response",
     "parse_error",
     "shape_error",
@@ -48,14 +59,17 @@ FAILURE_MODES = [
     "unknown_error",
 ]
 
+# v1 -> v2 vocabulary migration (applied by the analytics legacy upgrade).
+LEGACY_MODE_RENAMES = {"api_error": "execution_error"}
+
 
 def classify_failure(
-    provider_status: str,
+    solver_status: str,
     parse_status: str,
     evaluation: EvalResult,
     predicted_grid: Optional[list],
     expected_grid: Optional[list],
-    provider_error: Optional[str] = None,
+    solver_error: Optional[str] = None,
     parse_error: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
     """
@@ -64,15 +78,15 @@ def classify_failure(
     failure_mode is None only when the prediction is valid but there is no
     ground truth to compare against (hidden-set style rows).
     """
-    # 1. Provider never produced a judgeable response.
-    if provider_status != STATUS_OK:
-        return "api_error", provider_error or "provider call failed"
+    # 1. Solver never produced a judgeable output.
+    if solver_status != _STATUS_OK:
+        return "execution_error", solver_error or "solver execution failed"
 
-    # 2-3. Response exists but no valid grid came out of it.
+    # 2-3. Output exists but no valid grid came out of it.
     if parse_status == PARSE_EMPTY:
-        return "empty_response", "model returned an empty response"
+        return "empty_response", "solver returned an empty response"
     if parse_status in (PARSE_NO_JSON, PARSE_INVALID_GRID):
-        return "parse_error", parse_error or "no valid grid in response"
+        return "parse_error", parse_error or "no valid grid in output"
     if parse_status != PARSE_OK or predicted_grid is None:
         return "unknown_error", f"unexpected parse_status '{parse_status}'"
 

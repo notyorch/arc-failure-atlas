@@ -1,0 +1,10 @@
+{
+  "registry_version": 1,
+  "_readme": [
+    "Optional overrides / additional solvers for the ARC Solver Evaluation Platform.",
+    "Merged on top of built-in mock + example entries in src/solver_registry.py.",
+    "Preferred adapters: submission_file → submission_dir → subprocess_cli → http/in_process.",
+    "Never put secrets here. See docs/QUICKSTART_EXTERNAL_SOLVER.md."
+  ],
+  "solvers": {}
+}

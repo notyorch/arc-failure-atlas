@@ -1,0 +1,14 @@
+{
+  "pack_id": "example_local_pack",
+  "benchmark_family": "custom_arc_like",
+  "benchmark_name": "Example Local Pack",
+  "benchmark_version": "example-v1",
+  "task_source": "manual_local_import",
+  "split_name": "sample",
+  "tasks_dir": "tasks",
+  "task_count": 2,
+  "task_format": "arc_json",
+  "task_id_pattern": "local_task_id",
+  "license_or_usage_notes": "Tiny bundled fixtures for pack-loading tests (not a real benchmark).",
+  "notes": "Minimal example used to test benchmark pack loading end-to-end."
+}
