@@ -292,7 +292,7 @@ def flush_chunk(rows: list, run_dir: Path, part_index: int) -> int:
 
 
 def print_summary(all_rows: list, run_dir: Path, run_id: str,
-                  token_totals: dict) -> None:
+                  token_totals: dict, experiment_id: str | None = None) -> None:
     df = pd.DataFrame(all_rows)
     item_key = ["task_id", "test_example_id"]
     n_items = df.groupby(item_key, sort=False).ngroups
@@ -335,8 +335,30 @@ def print_summary(all_rows: list, run_dir: Path, run_id: str,
     counts = df["failure_mode"].fillna("(not classifiable)").value_counts()
     for mode, count in counts.items():
         print(f"    {mode:20s} {count}")
+    # Submission adapters mark missing (task, test) as execution_error so
+    # coverage gaps stay visible — that is not a solver crash. Surface it
+    # explicitly so a partial smoke is not mistaken for a broken judge.
+    if "error_message" in df.columns and len(df):
+        missing = (
+            df["error_message"].fillna("")
+            .astype(str).str.contains("not present in submission", regex=False)
+        )
+        n_missing = int(missing.sum())
+        if n_missing:
+            print(
+                f"note: {n_missing} of {len(df)} items had no prediction in the "
+                "submission (counted as execution_error = coverage gap, not "
+                "solver failure). Use --task-id / --limit to scope."
+            )
     print(f"output              : {run_dir}")
-    print("next step           : python src/build_analytics.py")
+    exp = experiment_id
+    if not exp and "experiment_id" in df.columns and len(df):
+        exp = df["experiment_id"].iloc[0]
+    if exp:
+        print(f"next step           : python src/build_analytics.py "
+              f"--experiment-id {exp}")
+    else:
+        print("next step           : python src/build_analytics.py")
 
 
 def build_solver(args, parser: argparse.ArgumentParser):
@@ -598,7 +620,8 @@ def main() -> None:
         run_started_at, finished_at=utc_now_iso(), n_rows_written=len(all_rows),
         token_totals=token_totals, benchmark_meta=benchmark_meta,
     ))
-    print_summary(all_rows, run_dir, run_id, token_totals)
+    print_summary(all_rows, run_dir, run_id, token_totals,
+                  experiment_id=args.experiment_id)
 
 
 if __name__ == "__main__":

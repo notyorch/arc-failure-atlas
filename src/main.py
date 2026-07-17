@@ -439,6 +439,38 @@ def process_folder(input_dir: Path) -> tuple:
     return combined_valid, combined_errors
 
 
+def _warn_if_corpus_mixes_packs(output_dir: Path, current_pack_id: str) -> None:
+    """Warn when Hive partitions retain task rows from more than one pack.
+
+    ETL writes/overwrites by task_id but does not delete other packs' tasks.
+    The sidecar always reflects the last pack processed.
+    """
+    parts = list(output_dir.glob("split=*/task_id=*/*.parquet"))
+    if not parts:
+        return
+    packs: set[str] = set()
+    for part in parts:
+        try:
+            chunk = pd.read_parquet(part, columns=["pack_id"])
+        except (OSError, ValueError, KeyError):
+            continue
+        if "pack_id" not in chunk.columns or chunk.empty:
+            continue
+        packs.update(chunk["pack_id"].dropna().astype(str).unique())
+        if len(packs) > 1:
+            break
+    if len(packs) <= 1:
+        return
+    logging.warning(
+        "Evaluation corpus at %s contains task rows from multiple packs (%s). "
+        "ETL accumulates by task_id; _benchmark_pack.json reflects only the "
+        "LAST pack processed (%s). Re-run "
+        "`python src/main.py --benchmark-pack <target>` before a real "
+        "evaluation, or isolate corpora with --output-root.",
+        output_dir, ", ".join(sorted(packs)), current_pack_id,
+    )
+
+
 # ENTRY POINT
 
 if __name__ == "__main__":
@@ -553,6 +585,7 @@ if __name__ == "__main__":
     )
     sidecar = write_pack_sidecar(output_dir, pack, n_tasks=n_tasks)
     logging.info("Benchmark pack sidecar → %s", sidecar)
+    _warn_if_corpus_mixes_packs(output_dir, pack.pack_id)
 
     logging.info("=" * 60)
     logging.info("ETL FINISHED")

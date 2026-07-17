@@ -1,8 +1,18 @@
-# ARC Solver Evaluation Platform
+# ATLAS
+
+**ARC Solver Evaluation Platform**
 
 Open-source **local judge** for ARC-AGI solver research: versioned benchmark
 packs, submission-first ingestion, reproducible analytics, optional public-score
 context, and a static results UI.
+
+> **Objective:** this repository is **evaluation infrastructure**, *not* a solver.
+> It does not attempt to solve ARC tasks; it scores, categorizes, and compares the
+> outputs of *other* solvers/models under one reproducible protocol.
+
+**Testing your own solver?** Start here →
+[**docs/EVALUATE_YOUR_SOLVER.md**](docs/EVALUATE_YOUR_SOLVER.md) (deploy → smoke →
+full, step by step).
 
 **Handoff guide:** [`docs/HANDOFF.md`](docs/HANDOFF.md) · **Evidence index:**
 [`reports/README.md`](reports/README.md)
@@ -50,6 +60,74 @@ benchmark pack / raw JSON
 
 ---
 
+## Results obtained (documented local pilots)
+
+All figures below are **`local_pilot_partial`**: fixed task subsets, LLM-direct
+pass@1 unless noted, **not** official ARC Prize leaderboard scores. Full
+narratives: [`reports/`](reports/) · tables: [`reports/tables/`](reports/tables/) ·
+charts: [`reports/figures/`](reports/figures/).
+
+### Primary corpus run — ARC-AGI-2 public eval (n=120)
+
+| Field | Value |
+| --- | --- |
+| Model | OpenCode Go `glm-5.2` (thinking disabled) |
+| Pack | `arc_agi_2` — 120 tasks → **167** test items |
+| Prompt / attempts | `arc_grid_v2` / 1 |
+| Run id | `20260716T155616Z_opencode-glm-5.2_15691f67` |
+| `task_solved_rate` | **0 / 120 (0%)** |
+| `solved_rate` (items) | **0 / 167 (0%)** |
+| Evaluable grids (parse ok) | 35 / 167 |
+| Parse errors | **132 (79%)** |
+| Avg latency | **~63.9 s / item** |
+| Wall time | ~3.0 h |
+| Report | [`reports/pilot_glm52_agi2_n120.md`](reports/pilot_glm52_agi2_n120.md) |
+
+Attempt-level CSV: [`reports/tables/pilot_glm52_agi2_n120_attempts.csv`](reports/tables/pilot_glm52_agi2_n120_attempts.csv).
+
+![Failure modes — GLM-5.2 on ARC-AGI-2 n=120](reports/figures/failure_mode_mix.png)
+
+### Comparative table (selected pilots)
+
+| Model | Benchmark | n tasks | n items | task_solved_rate | solved_rate | parse_error | avg latency |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| glm-5.2 (OpenCode) | ARC-AGI-2 | 120 | 167 | 0.0% | 0.0% | 79.0% | 63.9s |
+| glm-5.2 (OpenCode) | ARC-AGI-1 | 20 | 20 | 30.0% | 30.0% | 40.0% | 56.2s |
+| z-ai/glm-5.2 (archive) | ARC-AGI-1-ish | 26 | 26 | 30.8% | 30.8% | 0.0% | 15.3s |
+| deepseek-v4-pro (NIM) | ARC-AGI-1-ish | 5 | 5 | 20.0% | 20.0% | 0.0% | 165s |
+| qwen3.7-max (OpenCode) | ARC-AGI-2 | 5 | 7 | 0.0% | 0.0% | **0.0%** | 20.4s |
+| kimi-k2.6 (OpenCode) | ARC-AGI-2 | 5 | 5 | 0.0% | 0.0% | 0.0% | 2.8s |
+| glm-5.2 smoke | ARC-AGI-2 | 5 | 7 | 0.0% | 0.0% | 85.7% | 107.9s |
+
+Source CSV: [`reports/tables/model_comparison.csv`](reports/tables/model_comparison.csv).
+
+![Task solved rate by model](reports/figures/task_solved_rate_by_model.png)
+
+![Parse error rate by model](reports/figures/parse_error_rate_by_model.png)
+
+![Latency by model](reports/figures/latency_by_model.png)
+
+### Methodological notes
+
+1. **Protocol.** ETL stamps pack metadata → `run_evaluation.py` scores each
+   `(task, test_example)` under the Standard Solver Interface →
+   `build_analytics.py` emits Parquet/CSV/Markdown with Decision 21 metrics.
+2. **Fairness.** Ground truth never leaves the judge (`to_wire()`). LLM-direct
+   never sees `expected_output`.
+3. **Pass@k.** These pilots use `--attempts 1` (pass@1). ARC-style pass@2 is
+   available via `--attempts 2` but was not used here.
+4. **AGI-2 vs AGI-1.** On AGI-1 subsets, GLM often produced parseable grids and
+   non-zero solve rates (~30%). On the full AGI-2 public eval pack, the same
+   gateway model mostly emitted prose reasoning → **parse_error**, so solve rate
+   collapsed to 0% even though HTTP calls succeeded (0 `execution_error`).
+5. **Interpretation.** Low AGI-2 scores here diagnose **output-format / model
+   behavior under this prompt**, not a broken judge. Qwen/Kimi smokes (n=5)
+   parsed cleanly but also scored 0% — harder tasks, not infrastructure failure.
+6. **Regenerate charts.** After new runs:
+   `python scripts/consolidate_pilot_evidence.py --primary-run-id <run_id>`.
+
+---
+
 ## Ease-of-use rubric (solver developers)
 
 Six dimensions, 1–5 each (total 6–30). Current self-assessment: **~24/30**.
@@ -94,16 +172,22 @@ make mvp-offline          # sample data → report
 ### 2. ARC-AGI-2 pack (local tasks)
 
 Task JSON under `benchmark_packs/arc_agi_2/tasks/` is **gitignored** on fresh
-clones. Populate from the official ARC-AGI-2 public evaluation set:
+clones. Official public evaluation set:
+
+**https://github.com/arcprize/ARC-AGI-2** → `data/evaluation/`
+
+License/use is your responsibility; this repo does **not** auto-download it.
 
 ```bash
-# after obtaining evaluation JSON elsewhere
-cp /path/to/evaluation/*.json benchmark_packs/arc_agi_2/tasks/
-# or: ln -sfn /abs/path/to/evaluation benchmark_packs/arc_agi_2/tasks
+cp /path/to/ARC-AGI-2/data/evaluation/*.json benchmark_packs/arc_agi_2/tasks/
+# or: ln -sfn /abs/path/to/ARC-AGI-2/data/evaluation benchmark_packs/arc_agi_2/tasks
 
 python src/main.py --benchmark-pack arc_agi_2
 python src/main.py --list-benchmark-packs
 ```
+
+ETL accumulates packs in the same Parquet tree; see
+[`docs/BENCHMARK_PACKS.md`](docs/BENCHMARK_PACKS.md).
 
 ### 3. Evaluate your solver (preferred)
 
@@ -111,9 +195,12 @@ python src/main.py --list-benchmark-packs
 python src/submission_cli.py validate-submission \
   --path examples/external_solver/submission.json
 
+# Scope smokes with --task-id; otherwise missing pack tasks → execution_error
+# (coverage gap, not a broken judge). See docs/EVALUATE_YOUR_SOLVER.md.
 python src/submission_cli.py evaluate-submission \
   --path path/to/your/submission.json \
-  --solver-name my-system --experiment-id pre-submit
+  --solver-name my-system --experiment-id pre-submit \
+  --task-id sample01,sample02
 
 python src/build_analytics.py --experiment-id pre-submit
 ```
@@ -135,11 +222,14 @@ python src/run_evaluation.py \
 OpenCode Go model ids: `glm-5.2`, `qwen3.7-max`, `kimi-k2.6` (not `z-ai/…`
 aliases). Default `--attempts` is **1**; pass@2 → `--attempts 2`.
 
-### 5. Frontend
+### 5. Local dashboard (ephemeral)
+
+This UI is the dashboard of **your clone**, not a hosted site. Start it when you
+need it; stop with Ctrl+C.
 
 ```bash
 python scripts/export_frontend_data.py --run-id <run_id>
-cd frontend && npm install && npm run dev
+cd frontend && npm install && npx vite   # http://localhost:5173
 ```
 
 ### 6. Public context (optional)
@@ -157,8 +247,8 @@ python src/public_results_cli.py compare --run-id <run_id>
 | Offline pipeline | Verified: `make test`, `make smoke` |
 | Benchmark packs + ETL | Verified; AGI-2 smoke on local 120-task pack |
 | Submission adapters | Verified via examples + tests |
-| LLM-direct pilots | Documented evidence in `reports/` (partial n) |
-| Full AGI-2 corpus eval | **Not run** — manual, operator-initiated |
+| LLM-direct pilots | Documented in `reports/` + `reports/tables/` + figures |
+| Full AGI-2 public pack (n=120) | **Done** — GLM-5.2 OpenCode Go (`pilot-glm52-agi2-n120`) |
 | CI / GitHub Actions | **Not wired** |
 | Gemini / Claude live | **Manual** first-run still on checklist |
 

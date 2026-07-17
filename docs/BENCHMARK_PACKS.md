@@ -31,20 +31,22 @@ Pack task bodies may be large or licensed — keep manifests in git; leave
 
 ## Bring a local ARC-AGI-2 pack
 
-Upstream ARC-AGI-2 uses the same ARC JSON shape as AGI-1
-(`train` / `test` pairs, grids 0–9). Public evaluation lives under
-`data/evaluation/` in the ARC-AGI-2 repo.
+Official public evaluation JSON:
+[arcprize/ARC-AGI-2](https://github.com/arcprize/ARC-AGI-2) → `data/evaluation/`.
+**License and redistribution are your responsibility** — this platform never
+auto-downloads those files.
 
-This platform **does not** auto-download ARC-AGI-2. Populate the pack yourself:
+Upstream ARC-AGI-2 uses the same ARC JSON shape as AGI-1
+(`train` / `test` pairs, grids 0–9). Populate the pack yourself:
 
 ```bash
 # Option A — symlink an external evaluation JSON directory
 rm -rf benchmark_packs/arc_agi_2/tasks
-ln -sfn /absolute/path/to/evaluation_json_dir benchmark_packs/arc_agi_2/tasks
+ln -sfn /absolute/path/to/ARC-AGI-2/data/evaluation benchmark_packs/arc_agi_2/tasks
 
 # Option B — copy a subset
 mkdir -p benchmark_packs/arc_agi_2/tasks
-cp /path/to/evaluation/*.json benchmark_packs/arc_agi_2/tasks/
+cp /path/to/ARC-AGI-2/data/evaluation/*.json benchmark_packs/arc_agi_2/tasks/
 
 # Option C — point the manifest at another path
 # edit benchmark_packs/arc_agi_2/manifest.json → "tasks_dir": "/abs/path/to/evaluation"
@@ -59,8 +61,28 @@ python src/run_evaluation.py --solver mock-baseline --limit 5 --experiment-id ag
 # or submission-first:
 python src/submission_cli.py evaluate-submission \
   --path path/to/submission.json \
-  --solver-name my-agi2-system --experiment-id pre-submit
+  --solver-name my-agi2-system --experiment-id pre-submit \
+  --task-id <id1>,<id2>   # scope smokes; see EVALUATE_YOUR_SOLVER.md
 python src/build_analytics.py --experiment-id agi2-smoke
+```
+
+### Pack accumulation / sidecar
+
+ETL writes into one Hive tree (`data/parquet/evaluation/`, partitioned by
+`task_id`). **Packs accumulate:** mounting `example_local_pack` after
+`arc_agi_2` leaves both task sets on disk, and
+`data/parquet/evaluation/_benchmark_pack.json` always reflects the **last**
+pack processed. Before a real AGI-2 evaluation, re-run:
+
+```bash
+python src/main.py --benchmark-pack arc_agi_2
+```
+
+To isolate corpora, pass a separate root (supported by `main.py`):
+
+```bash
+python src/main.py --benchmark-pack example_local_pack \
+  --output-root /tmp/atlas-example-parquet
 ```
 
 Generic local pack (any path with a `manifest.json`):

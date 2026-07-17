@@ -3,6 +3,10 @@
 **Audience:** you already have an ARC solver project (or a Kaggle/ARC Prize
 `submission.json`). You want a local final judge before uploading.
 
+**Canonical walkthrough:** [`EVALUATE_YOUR_SOLVER.md`](EVALUATE_YOUR_SOLVER.md)
+is the step-by-step tester guide (env → pack → smoke → full). **This file** is
+the short copy-paste reference for each adapter path.
+
 **You do not need to** implement `solve(task)` in Python, install our
 providers, or reshape your training loop.
 
@@ -20,17 +24,30 @@ Copy-paste examples below use the bundled fixtures under
 
 ## Prerequisites (once)
 
+Same baseline as the tester guide — you are already inside this clone:
+
 ```bash
 pip install -r requirements.txt
-python scripts/fetch_arc_data.py --sample
-python src/main.py
-# or: python src/main.py --benchmark-pack example_local_pack
-# ARC-AGI-2: see docs/BENCHMARK_PACKS.md (local pack, no auto-fetch)
+make smoke                                 # prove the judge works offline
+
+# Mount tasks (pick one). Prefer a pack; see docs/BENCHMARK_PACKS.md.
+python src/main.py --benchmark-pack example_local_pack
+# ARC-AGI-2 (manual): https://github.com/arcprize/ARC-AGI-2 → data/evaluation/
+#   cp …/data/evaluation/*.json benchmark_packs/arc_agi_2/tasks/
+#   python src/main.py --benchmark-pack arc_agi_2
+# Legacy AGI-1 sample path (still supported):
+#   python scripts/fetch_arc_data.py --sample && python src/main.py
 ```
+
+ETL **accumulates** packs in `data/parquet/evaluation/`; re-run the target pack
+before a real evaluation if you mixed `example_local_pack` with AGI-2.
 
 ---
 
 ## A) Evaluate a Kaggle-style `submission.json`
+
+> **Coverage trap:** without `--task-id` / `--limit`, missing pack tasks are
+> scored as `execution_error` (coverage gap, not a solver crash). Scope smokes.
 
 ```bash
 python src/submission_cli.py validate-submission \
@@ -38,7 +55,8 @@ python src/submission_cli.py validate-submission \
 
 python src/submission_cli.py evaluate-submission \
   --path examples/external_solver/submission.json \
-  --solver-name my-system --experiment-id pre-submit
+  --solver-name my-system --experiment-id pre-submit \
+  --task-id sample01,sample02
 
 python src/build_analytics.py --experiment-id pre-submit
 ```
@@ -82,7 +100,10 @@ Registry:
 
 ## C) Evaluate a CLI solver without rewriting it
 
-Template: `examples/external_solver/cli_wrapper_template.py`
+Template: `examples/external_solver/cli_wrapper_template.py`.
+Copy the `my-cli-solver` entry from
+`examples/external_solver/solvers.snippet.json` into
+**`configs/solvers.json`**, then:
 
 ```json
 "my-cli-solver": {

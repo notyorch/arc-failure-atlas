@@ -1,0 +1,5 @@
+failure_mode,n_items,n_tasks,n_attempts,n_evaluable,exact_match_rate,solved_rate,task_solved_rate,avg_cell_accuracy,avg_latency_ms,total_cost_estimate_usd,parse_error_rate,shape_error_rate
+parse_error,132,103,132,0,0.0,0.0,0.0,,65314.71869604542,0.0,1.0,0.0
+shape_error,30,27,30,30,0.0,0.0,0.0,0.05280963168641426,61826.457918900116,0.0,0.0,1.0
+symbol_error,4,4,4,4,0.0,0.0,0.0,0.4194878472222222,33727.946550250635,0.0,0.0,0.0
+spatial_error,1,1,1,1,0.0,0.0,0.0,0.84,61911.627566998504,0.0,0.0,0.0

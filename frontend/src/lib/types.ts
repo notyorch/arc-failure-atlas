@@ -17,8 +17,14 @@ export type PilotSummary = {
   benchmark_name?: string | null
   benchmark_version?: string | null
   n_tasks: number
+  n_task_count?: number | null
   n_attempts: number
   solved_rate: number | null
+  task_solved_rate?: number | null
+  parse_error_rate?: number | null
+  parse_error_count?: number | null
+  execution_error_rate?: number | null
+  execution_error_count?: number | null
   exact_match_rate: number | null
   avg_cell_accuracy: number | null
   avg_latency_ms: number | null
@@ -30,6 +36,33 @@ export type PilotSummary = {
   dominant_failure_mode: string | null
   failure_modes: FailureModeCount[]
   comparison_scope: string
+  artifact_path: string
+}
+
+export type RunRow = {
+  run_id: string
+  experiment_id: string | null
+  status: string | null
+  model_name: string | null
+  solver_name: string | null
+  provider: string | null
+  prompt_version: string | null
+  pack_id: string | null
+  benchmark_name: string | null
+  n_tasks: number
+  n_task_count: number | null
+  n_attempts: number
+  solved_rate: number | null
+  task_solved_rate: number | null
+  exact_match_rate: number | null
+  parse_error_rate: number | null
+  parse_error_count: number | null
+  execution_error_rate: number | null
+  execution_error_count: number | null
+  avg_latency_ms: number | null
+  dominant_failure_mode: string | null
+  started_at: string | null
+  finished_at: string | null
   artifact_path: string
 }
 
@@ -66,11 +99,13 @@ export type OverviewData = {
   generated_at: string
   project: {
     name: string
+    brand?: string
     tagline: string
     mission: string
     what_it_is_not: string[]
   }
   pilot: PilotSummary | null
+  runs?: RunRow[]
   public_context: {
     available: boolean
     n_rows?: number

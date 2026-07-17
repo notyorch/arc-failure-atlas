@@ -1,0 +1,8 @@
+run_id,experiment_id,solver_name,model,benchmark,n_tasks,n_items,n_attempts,task_solved_rate,solved_rate,exact_match_rate,parse_error_rate,execution_error_rate,avg_latency_ms,avg_cell_accuracy
+20260716T050606Z_opencode-glm-5.2_2343e8c5,pilot-glm52-agi1-n20-v2,opencode-glm-5.2,glm-5.2,ARC-AGI-1,20,20,20,0.3,0.3,0.3,0.4,0.0,56235.607773799704,0.8479662698412698
+20260716T155616Z_opencode-glm-5.2_15691f67,pilot-glm52-agi2-n120,opencode-glm-5.2,glm-5.2,ARC-AGI-2,120,167,167,0.0,0.0,0.0,0.7904191616766467,0.0,63911.13783959881,0.11720686684232334
+20260716T032633Z_kimi-k2.6_b997534f,pilot-kimi-k26-agi2-n5-nothink,kimi-k2.6,kimi-k2.6,ARC-AGI-2,5,5,5,0.0,0.0,0.0,0.0,0.0,2822.383002999777,0.7536526721142105
+20260716T053528Z_opencode-glm-5.2_83788fd6,smoke-glm52-agi2-n5,opencode-glm-5.2,glm-5.2,ARC-AGI-2,5,7,7,0.0,0.0,0.0,0.8571428571428571,0.0,107912.39069542801,0.05555555555555555
+20260716T062140Z_opencode-qwen3.7-max_2c9e97c4,smoke-qwen37max-agi2-n5,opencode-qwen3.7-max,qwen3.7-max,ARC-AGI-2,5,7,7,0.0,0.0,0.0,0.0,0.0,20413.501189000403,0.5292765279246344
+20260715T172307Z_openai_z-ai-glm-5.2_8f9cf828,real-glm52,openai:z-ai/glm-5.2,z-ai/glm-5.2,unknown,26,26,26,0.3076923076923077,0.3076923076923077,0.3076923076923077,0.0,0.0,15257.812141576953,0.7763521740815883
+20260716T010504Z_nim-deepseek-v4-pro_76a8317f,pilot-nim-dsv4pro,nim-deepseek-v4-pro,deepseek-ai/deepseek-v4-pro,unknown,5,5,5,0.2,0.2,0.2,0.0,0.0,165023.14711039982,0.8136916099773241

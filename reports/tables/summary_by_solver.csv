@@ -1,0 +1,2 @@
+experiment_id,solver_name,solver_family,solver_version,execution_mode,n_items,n_tasks,n_attempts,n_evaluable,exact_match_rate,solved_rate,task_solved_rate,avg_cell_accuracy,avg_latency_ms,total_cost_estimate_usd,parse_error_rate,shape_error_rate
+pilot-glm52-agi2-n120,opencode-glm-5.2,llm_direct,go-v1-nothink-n120,in_process,167,120,167,35,0.0,0.0,0.0,0.11720686684232334,63911.13783959881,0.0,0.7904191616766467,0.17964071856287425

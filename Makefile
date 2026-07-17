@@ -69,7 +69,7 @@ frontend-data:
 	python scripts/export_frontend_data.py
 
 frontend-dev:
-	cd frontend && npm run data && npm run dev
+	cd frontend && npm run data && npx vite
 
 frontend-build:
 	cd frontend && npm run data && npm run build

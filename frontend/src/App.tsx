@@ -2,8 +2,10 @@ import { useEffect, useState } from "react"
 import { ArtifactsSection } from "@/components/ArtifactsSection"
 import { ComparisonSection } from "@/components/ComparisonSection"
 import { FailureSection } from "@/components/FailureSection"
+import { GuideSection } from "@/components/GuideSection"
 import { Hero } from "@/components/HeroSection"
 import { MetricsSection } from "@/components/MetricsSection"
+import { RunsSection } from "@/components/RunsSection"
 import { SiteHeader } from "@/components/SiteHeader"
 import { Separator } from "@/components/ui/separator"
 import type { OverviewData } from "@/lib/types"
@@ -56,7 +58,9 @@ export default function App() {
         ) : (
           <>
             <Hero project={data.project} />
+            <GuideSection />
             <MetricsSection pilot={data.pilot} />
+            <RunsSection runs={data.runs ?? []} />
             <ComparisonSection
               pilot={data.pilot}
               publicContext={data.public_context}
@@ -65,8 +69,8 @@ export default function App() {
             <ArtifactsSection artifacts={data.artifacts} />
             <Separator className="mx-auto max-w-6xl bg-border/50" />
             <footer className="mx-auto max-w-6xl px-5 py-8 text-xs font-normal text-muted md:px-8">
-              Overview generated {new Date(data.generated_at).toUTCString()}. Metrics come from
-              local evaluation / public-results Parquet — not invented for the UI.
+              ATLAS · overview generated {new Date(data.generated_at).toUTCString()}. Metrics come
+              from local evaluation / public-results Parquet — not invented for the UI.
             </footer>
           </>
         )}

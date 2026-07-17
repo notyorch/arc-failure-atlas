@@ -101,7 +101,7 @@ See `docs/RUNBOOK.md` for provider-specific notes.
 ```bash
 python src/public_results_cli.py compare --run-id <your_run_id>
 python scripts/export_frontend_data.py --run-id <your_run_id>
-cd frontend && npm install && npm run dev
+cd frontend && npm install && npx vite   # ephemeral local UI; Ctrl+C when done
 ```
 
 ---

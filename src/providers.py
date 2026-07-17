@@ -296,12 +296,13 @@ class OpenAIProvider(BaseProvider):
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": config.max_output_tokens(),
         }
-        # Kimi K2.5/K2.6 and Qwen 3.7*: thinking is ON by default on OpenCode
-        # Go and burns the timeout on ARC prompts. Disable for grid-only runs.
-        # Do not send temperature=0 with these models (gateway may reject it).
+        # Kimi K2.5/K2.6, Qwen 3.7*, and GLM-5*: thinking is ON by default on
+        # OpenCode Go and burns tokens / timeouts on ARC prompts. Disable for
+        # grid-only runs. Do not send temperature=0 with these models.
         model_l = self.model_name.lower()
         if (model_l.startswith("kimi-k2.5") or model_l.startswith("kimi-k2.6")
-                or model_l.startswith("qwen3.7")):
+                or model_l.startswith("qwen3.7")
+                or model_l.startswith("glm-5")):
             payload["thinking"] = {"type": "disabled"}
         else:
             payload["temperature"] = 0
