@@ -1,11 +1,70 @@
-# Project metadata only. This repository is an APPLICATION run from source
-# (`python src/<entrypoint>.py`, see README) — it is not built or published
-# as a package, so no build-system/packaging configuration is declared.
-# Install dependencies with `pip install -r requirements.txt`.
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "arc-failure-atlas"
+name = "atlas-arc"
 version = "0.1.0"
-description = "Reproducible ARC Solver Evaluation Platform for heterogeneous ARC-AGI research"
-requires-python = ">=3.11"
+description = "ATLAS — reproducible evaluation infrastructure for heterogeneous ARC-AGI solvers"
 readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "ATLAS contributors" }]
+keywords = ["ARC", "ARC-AGI", "evaluation", "benchmark", "Kaggle"]
+dependencies = [
+  "pandas==2.3.3",
+  "numpy==2.3.5",
+  "pyarrow==21.0.0",
+  "duckdb==1.5.4",
+  "matplotlib==3.10.6",
+  "requests==2.32.5",
+  "tabulate==0.9.0",
+]
+
+[project.optional-dependencies]
+dev = []  # runtime deps cover make test / make smoke; extend here if needed
+
+[project.urls]
+Documentation = "README.md"
+Changelog = "CHANGELOG.md"
+
+[project.scripts]
+atlas-etl = "main:main"
+atlas-evaluate = "run_evaluation:main"
+atlas-submission = "submission_cli:main"
+atlas-batch = "batch_runner:main"
+atlas-presubmit = "presubmit_cli:main"
+atlas-analytics = "build_analytics:main"
+atlas-public-results = "public_results_cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+py-modules = [
+  "main",
+  "run_evaluation",
+  "submission_cli",
+  "batch_runner",
+  "presubmit_cli",
+  "presubmit",
+  "build_analytics",
+  "public_results_cli",
+  "benchmark_packs",
+  "config",
+  "contracts",
+  "evaluator",
+  "failure_taxonomy",
+  "grid_parser",
+  "kaggle_protocol",
+  "manifest",
+  "prompt_builder",
+  "providers",
+  "solver_registry",
+  "solvers",
+  "submission_io",
+  "task_loader",
+  "run_inference",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["public_results*"]

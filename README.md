@@ -14,6 +14,17 @@ context, and a static results UI.
 [**docs/EVALUATE_YOUR_SOLVER.md**](docs/EVALUATE_YOUR_SOLVER.md) (deploy → smoke →
 full, step by step).
 
+**Shipping a complete system to ARC Prize / Kaggle?** →
+[**docs/PRESUBMIT_STANDARD.md**](docs/PRESUBMIT_STANDARD.md): run your whole
+pipeline under the judge (`batch_runner`), Kaggle-strict format check, sealed
+holdout, and a one-page go/no-go certificate (`make presubmit-example`).
+
+**Contracts / install / adopter path:**
+[`docs/CONTRACTS.md`](docs/CONTRACTS.md) ·
+[`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) ·
+[`docs/ADOPTER_JOURNEY.md`](docs/ADOPTER_JOURNEY.md) ·
+[`CHANGELOG.md`](CHANGELOG.md)
+
 **Handoff guide:** [`docs/HANDOFF.md`](docs/HANDOFF.md) · **Evidence index:**
 [`reports/README.md`](reports/README.md)
 
@@ -153,9 +164,15 @@ Six dimensions, 1–5 each (total 6–30). Current self-assessment: **~24/30**.
 git clone <this-repo>
 cd arc-failure-atlas
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+# Preferred (installs console scripts: atlas-evaluate, atlas-presubmit, …):
+pip install -e .
+# Or requirements only (then use `python src/...` as below):
+# pip install -r requirements.txt
 cp .env.example .env    # optional; export vars yourself — not auto-loaded
 ```
+
+Install modes: **clone + editable** for developers; **`python src/...`** remains
+supported through 0.x. See [`docs/ADOPTER_JOURNEY.md`](docs/ADOPTER_JOURNEY.md).
 
 ---
 
@@ -164,7 +181,7 @@ cp .env.example .env    # optional; export vars yourself — not auto-loaded
 ### 1. Verify (offline, no keys)
 
 ```bash
-make test                 # 135 unit tests
+make test                 # unit tests (CI)
 make smoke                # isolated ETL → mock eval → analytics
 make mvp-offline          # sample data → report
 ```
@@ -240,19 +257,26 @@ python src/public_results_cli.py compare --run-id <run_id>
 
 ---
 
-## Release status (academic MVP)
+## Release status (v0.1.0 candidate)
 
 | Area | Status |
 | --- | --- |
-| Offline pipeline | Verified: `make test`, `make smoke` |
-| Benchmark packs + ETL | Verified; AGI-2 smoke on local 120-task pack |
+| Offline pipeline | Verified: `make test` (170), `make smoke` |
+| Packaging / console scripts | Verified: `pip install -e .` → `atlas-*` |
+| Public contracts / schemas | Frozen: `docs/CONTRACTS.md` + `schemas/` |
+| Adopter path | Documented: `docs/ADOPTER_JOURNEY.md` |
+| Benchmark packs + ETL | Verified; AGI-2 on local 120-task pack |
 | Submission adapters | Verified via examples + tests |
-| LLM-direct pilots | Documented in `reports/` + `reports/tables/` + figures |
+| Kaggle-strict + `kaggle_score` | Verified (Tier 1) |
+| Batch runner + certificate | Verified: `make presubmit-example` |
+| Sealed holdout | Verified (Tier 3; one-shot reveal) |
+| LLM-direct pilots | Documented in `reports/` + tables + figures |
 | Full AGI-2 public pack (n=120) | **Done** — GLM-5.2 OpenCode Go (`pilot-glm52-agi2-n120`) |
-| CI / GitHub Actions | **Not wired** |
+| CI / GitHub Actions | Wired: `.github/workflows/ci.yml` |
+| Governance | `CONTRIBUTING.md`, `SECURITY.md`, issue templates, `RELEASE_PROCESS.md` |
 | Gemini / Claude live | **Manual** first-run still on checklist |
 
-Details: [`docs/HANDOFF.md`](docs/HANDOFF.md) · [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md)
+Details: [`docs/HANDOFF.md`](docs/HANDOFF.md) · [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) · [`CHANGELOG.md`](CHANGELOG.md)
 
 ---
 
@@ -266,6 +290,9 @@ Details: [`docs/HANDOFF.md`](docs/HANDOFF.md) · [`docs/RELEASE_CHECKLIST.md`](d
 | `make list-packs` / `make list-solvers` | Discovery |
 | `make etl-example-pack` | Bundled tiny pack ETL |
 | `make validate-example-submission` | Example submission check |
+| `make batch-example` / `make presubmit-example` | Pre-submit demo |
+| `make clean-demo` | Remove generated batch/certificate/holdout files |
+| `make create-holdout` | Seal a local holdout split |
 | `make frontend-dev` | Export + Vite |
 | `make public-results` | Observatory compare (default pilot id) |
 

@@ -1,7 +1,7 @@
-.PHONY: help data-sample data-20 etl etl-example-pack list-packs eval-mock eval-gemini eval-claude analytics mvp-offline smoke test demo-bundle list-solvers validate-example-submission public-results frontend-data frontend-dev frontend-build
+.PHONY: help data-sample data-20 etl etl-example-pack list-packs eval-mock eval-gemini eval-claude analytics mvp-offline smoke test demo-bundle list-solvers validate-example-submission public-results frontend-data frontend-dev frontend-build batch-example presubmit-example create-holdout clean-demo
 
 help:
-	@echo "ARC Solver Evaluation Platform — common targets"
+	@echo "ATLAS — ARC Solver Evaluation Platform"
 	@echo "  make data-sample   copy bundled offline sample tasks"
 	@echo "  make data-20       download first 20 ARC-AGI evaluation tasks"
 	@echo "  make etl           normalize tasks to Parquet (legacy data/raw)"
@@ -18,6 +18,10 @@ help:
 	@echo "  make frontend-dev    run Vite frontend (requires Node)"
 	@echo "  make frontend-build  production build of frontend/"
 	@echo "  make mvp-offline   full offline pipeline: sample data → report"
+	@echo "  make batch-example run the example solver PROJECT through the batch runner"
+	@echo "  make create-holdout  seal a dev/holdout split of the mounted pack"
+	@echo "  make presubmit-example  batch run + go/no-go certificate (offline demo)"
+	@echo "  make clean-demo    remove generated batch/certificate/holdout demo files"
 	@echo "  make demo-bundle   presentation bundle → artifacts/demo/"
 	@echo "  make smoke         end-to-end smoke test in an isolated temp dir"
 	@echo "  make test          unit tests"
@@ -76,6 +80,30 @@ frontend-build:
 
 demo-bundle:
 	python scripts/demo_bundle.py
+
+# --- Pre-submit standard (docs/PRESUBMIT_STANDARD.md) ---------------------
+
+batch-example:
+	python src/batch_runner.py \
+		--project examples/batch_project/atlas_project.json \
+		--stage-dir artifacts/batch/example \
+		--benchmark-pack example_local_pack \
+		--enforce-budget --experiment-id batch-example
+
+create-holdout:
+	python src/presubmit_cli.py create-holdout --seed 42 --holdout-fraction 0.3
+
+presubmit-example: batch-example
+	python src/presubmit_cli.py certify \
+		--submission artifacts/batch/example/submission.json \
+		--solver-name example-batch-pipeline \
+		--batch-manifest artifacts/batch/example/batch_manifest.json
+
+clean-demo:
+	rm -rf artifacts/batch
+	rm -f reports/presubmit_certificate_*.md
+	rm -f configs/holdout_*.json
+	@echo "Removed generated batch / certificate / holdout demo files."
 
 smoke:
 	python scripts/smoke_test.py

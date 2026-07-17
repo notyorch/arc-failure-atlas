@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlas.local/schemas/holdout_split.schema.json",
+  "title": "ATLAS sealed holdout split",
+  "description": "Deterministic, sealed dev/holdout partition of a mounted pack. Tamper-evident via seal_sha256. Fields may be added in 0.x.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "manifest_kind",
+    "seed",
+    "holdout_fraction",
+    "dev_task_ids",
+    "holdout_task_ids",
+    "seal_sha256"
+  ],
+  "properties": {
+    "manifest_kind": { "const": "holdout_split" },
+    "benchmark": { "type": "object" },
+    "seed": { "type": "integer" },
+    "holdout_fraction": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "exclusiveMaximum": 1
+    },
+    "n_tasks": { "type": "integer", "minimum": 2 },
+    "n_dev": { "type": "integer", "minimum": 1 },
+    "n_holdout": { "type": "integer", "minimum": 1 },
+    "dev_task_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "holdout_task_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "seal_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "created_at": { "type": "string" },
+    "git_commit": { "type": ["string", "null"] },
+    "revealed_at": {
+      "type": ["string", "null"],
+      "description": "ISO timestamp of the one-shot reveal; null while sealed"
+    }
+  }
+}

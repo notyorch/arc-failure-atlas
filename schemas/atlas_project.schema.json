@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlas.local/schemas/atlas_project.schema.json",
+  "title": "ATLAS solver_project manifest",
+  "description": "Declares how a complete solver pipeline runs under atlas-batch / batch_runner.py. Fields may be added in 0.x; renames/removals require a major version.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["manifest_kind", "name", "command", "artifact"],
+  "properties": {
+    "manifest_kind": {
+      "const": "solver_project"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Solver / system name stamped on evaluation rows"
+    },
+    "version": {
+      "type": "string",
+      "default": "0.0.0"
+    },
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Argv to execute; cwd is workdir"
+    },
+    "workdir": {
+      "type": "string",
+      "default": ".",
+      "description": "Working directory relative to the manifest file"
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Extra non-secret environment variables"
+    },
+    "artifact": {
+      "type": "string",
+      "description": "Fallback path (relative to workdir) if ATLAS_SUBMISSION_PATH is not honored"
+    },
+    "budget_hours": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "default": 12.0,
+      "description": "Wall-clock budget on the runner host (not Kaggle hardware parity)"
+    },
+    "gpu_telemetry": {
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

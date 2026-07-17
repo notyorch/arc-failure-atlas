@@ -120,6 +120,7 @@ providers unless you want the LLM-direct path.
 | One JSON of predictions per task | **B** | `submission_dir` |
 | A command-line program (stdin→stdout) | **C** | `subprocess_cli` |
 | Just a model behind an API key | **D** | LLM-direct |
+| A complete pipeline (TTT, search, ensemble…) | **E** | `batch_runner` — see [`PRESUBMIT_STANDARD.md`](PRESUBMIT_STANDARD.md) |
 
 Full adapter reference: [`SOLVER_ADAPTERS.md`](SOLVER_ADAPTERS.md) ·
 copy-paste examples: [`QUICKSTART_EXTERNAL_SOLVER.md`](QUICKSTART_EXTERNAL_SOLVER.md)
@@ -234,6 +235,8 @@ For ARC-style pass@2, add `--attempts 2`.
 - `solved_rate` — item-level pass@k (per test example).
 - `task_solved_rate` — **ARC-official** (a task counts only if *all* its test
   examples are correct).
+- `kaggle_score` — **leaderboard metric**: per task, the fraction of test
+  outputs where any of the first 2 attempts is exact; averaged across tasks.
 - `exact_match_rate` — per attempt.
 - `parse_error_rate` — output could not be read as a grid (≠ wrong answer).
 
@@ -246,6 +249,26 @@ cd frontend && npm install && npx vite   # http://localhost:5173 · Ctrl+C when 
 
 The **All runs** table shows your runs newest-first and keeps `parse_error` in
 its own column so you never confuse "couldn't read it" with "read it, but wrong".
+
+---
+
+## Step 8 — Certify before you actually submit (complete systems)
+
+When the target is a real ARC Prize / Kaggle submit, accuracy is only one of
+four ways to waste the attempt. The **pre-submit standard** checks all four —
+grader-strict format, runtime budget + offline viability, sealed-holdout
+score, and variance — and emits a one-page go/no-go:
+
+```bash
+python src/submission_cli.py validate-submission --path sub.json --kaggle-strict
+python src/batch_runner.py --project atlas_project.json --offline --enforce-budget
+python src/presubmit_cli.py create-holdout --seed 42 --holdout-fraction 0.3
+python src/presubmit_cli.py certify --submission sub.json \
+  --holdout configs/holdout_arc_agi_2.json --batch-manifest <...>/batch_manifest.json
+```
+
+Full guide: [`PRESUBMIT_STANDARD.md`](PRESUBMIT_STANDARD.md) · offline demo of
+the whole loop: `make presubmit-example`.
 
 ---
 

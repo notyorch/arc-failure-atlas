@@ -56,7 +56,30 @@ def cmd_validate(args: argparse.Namespace) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    if args.against_tasks is not None:
+    if args.kaggle_strict:
+        # Kaggle-grader rules need the evaluation-set shape (test counts),
+        # so this implies a tasks Parquet (default: the mounted corpus).
+        from task_loader import DEFAULT_TASKS_PARQUET, load_tasks_dataframe
+        from kaggle_protocol import (
+            coverage_summary,
+            format_coverage_report,
+            kaggle_strict_issues,
+            test_counts_from_tasks_df,
+        )
+        tasks_path = args.against_tasks or DEFAULT_TASKS_PARQUET
+        try:
+            tasks_df = load_tasks_dataframe(tasks_path)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 2
+        expected_counts = test_counts_from_tasks_df(tasks_df)
+        submission.issues = (
+            list(submission.issues)
+            + kaggle_strict_issues(submission, expected_counts)
+        )
+        print(format_coverage_report(
+            coverage_summary(submission, expected_counts)))
+    elif args.against_tasks is not None:
         try:
             expected = _load_expected_task_ids(args.against_tasks)
         except (FileNotFoundError, ValueError) as exc:
@@ -166,6 +189,11 @@ def build_parser() -> argparse.ArgumentParser:
                        help="optional tasks Parquet dir to check coverage")
     p_val.add_argument("--strict-coverage", action="store_true",
                        help="treat missing expected tasks as errors")
+    p_val.add_argument("--kaggle-strict", action="store_true",
+                       help="apply Kaggle-grader rules: every task, every "
+                            "test example, attempt_1 AND attempt_2 present "
+                            "(checks against --against-tasks, default: the "
+                            "mounted tasks Parquet)")
     p_val.add_argument("--fail-on-warning", action="store_true")
     p_val.set_defaults(func=cmd_validate)
 

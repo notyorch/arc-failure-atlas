@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Tester guide
+    url: https://github.com/yorch/arc-failure-atlas/blob/main/docs/EVALUATE_YOUR_SOLVER.md
+    about: Step-by-step local evaluation (smoke → full)
+  - name: Pre-submit standard
+    url: https://github.com/yorch/arc-failure-atlas/blob/main/docs/PRESUBMIT_STANDARD.md
+    about: Batch runner, holdout, and go/no-go certificate

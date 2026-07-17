@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -e .
+          pip install -r requirements.txt
+      - name: Unit tests
+        run: make test
+      - name: Console scripts entrypoints
+        run: |
+          atlas-etl --help >/dev/null
+          atlas-evaluate --help >/dev/null
+          atlas-presubmit --help >/dev/null
+          atlas-batch --help >/dev/null
+      - name: End-to-end smoke (isolated temp dir)
+        run: make smoke
+      - name: Batch runner example (offline pipeline round-trip)
+        run: |
+          python src/main.py --benchmark-pack example_local_pack
+          python src/batch_runner.py \
+            --project examples/batch_project/atlas_project.json \
+            --stage-dir /tmp/atlas-ci-batch \
+            --benchmark-pack example_local_pack \
+            --enforce-budget --no-score
+          python src/submission_cli.py validate-submission \
+            --path /tmp/atlas-ci-batch/submission.json --kaggle-strict

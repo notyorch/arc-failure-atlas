@@ -32,6 +32,11 @@ __pycache__/
 .venv/
 venv/
 
+# Editable / packaging leftovers
+*.egg-info/
+dist/
+build/
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
@@ -47,3 +52,9 @@ agent_context/
 AGENTS.md
 CLAUDE.md
 .github/copilot-instructions.md
+tasks.md
+
+# Generated pre-submit outputs (recreate with make presubmit-example / create-holdout)
+reports/presubmit_certificate_*.md
+configs/holdout_*.json
+*.canvas.tsx

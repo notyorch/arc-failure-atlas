@@ -322,6 +322,12 @@ def print_summary(all_rows: list, run_dir: Path, run_id: str,
     print(f"solved_rate (items) : {solved_items} / {n_items} test example(s)")
     print(f"task_solved_rate    : {solved_tasks} / {n_tasks} "
           "(all test examples correct — ARC-official)")
+    from kaggle_protocol import kaggle_score_from_rows
+    kaggle = kaggle_score_from_rows(df)
+    if kaggle["kaggle_score"] is not None:
+        print(f"kaggle_score        : {kaggle['kaggle_score']:.4f} "
+              "(leaderboard metric — per-task mean over test outputs, "
+              "attempts 1-2)")
     print(f"exact attempt rows  : {int(exact_rows)} / {int(evaluable)} evaluable")
     if df["cell_accuracy"].notna().any():
         print(f"avg cell accuracy   : {df['cell_accuracy'].mean():.3f} "

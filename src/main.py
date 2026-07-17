@@ -473,7 +473,7 @@ def _warn_if_corpus_mixes_packs(output_dir: Path, current_pack_id: str) -> None:
 
 # ENTRY POINT
 
-if __name__ == "__main__":
+def main() -> None:
     # Paths are cwd-relative BY DESIGN (the smoke test runs this module from
     # an isolated temp dir). Flag > ATLAS_OUTPUT_ROOT > default; with no flags
     # and no env vars the behavior is identical to earlier versions.
@@ -590,3 +590,7 @@ if __name__ == "__main__":
     logging.info("=" * 60)
     logging.info("ETL FINISHED")
     logging.info("=" * 60)
+
+
+if __name__ == "__main__":
+    main()

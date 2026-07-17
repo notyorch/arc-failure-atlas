@@ -1,0 +1,11 @@
+{
+  "manifest_kind": "solver_project",
+  "name": "example-batch-pipeline",
+  "version": "0.1.0",
+  "command": ["python", "solve_pipeline.py"],
+  "workdir": ".",
+  "env": {},
+  "artifact": "out/submission.json",
+  "budget_hours": 0.25,
+  "gpu_telemetry": false
+}

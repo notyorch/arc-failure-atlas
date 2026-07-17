@@ -941,6 +941,81 @@ useful but easy to over-interpret.
 
 ---
 
+## Decision 22 — Kaggle protocol parity (`kaggle_score` + strict validate)
+
+**Date:** July 16, 2026
+**Modules:** `src/kaggle_protocol.py`, `src/submission_cli.py`,
+`src/run_evaluation.py`
+
+### Adopted Decision
+
+1. `--kaggle-strict` on `validate-submission` requires every pack task, every
+   test example, and both `attempt_1` and `attempt_2`.
+2. Every evaluation summary prints **`kaggle_score`**: per-task mean of the
+   fraction of test outputs solved under attempts 1–2 (leaderboard-style).
+3. Platform metrics (`solved_rate`, `task_solved_rate`) remain; `kaggle_score`
+   sits beside them without renaming existing CSV columns.
+
+---
+
+## Decision 23 — Batch runner for complete solver projects
+
+**Date:** July 16, 2026
+**Modules:** `src/batch_runner.py`, `examples/batch_project/`
+
+### Adopted Decision
+
+1. Complete pipelines declare `atlas_project.json` (`manifest_kind=
+   solver_project`).
+2. Integration surface is exactly two env vars: `ATLAS_TASKS_DIR` (test GT
+   stripped) and `ATLAS_SUBMISSION_PATH`.
+3. Telemetry records wall time vs `budget_hours`, exit code, optional GPU,
+   and offline flag (`unshare -rn` where available).
+4. Scoring reuses the submission adapter path — one judge for all families.
+5. `--benchmark-pack` restricts staging/scoring to that pack’s task JSON ids
+   (needed when a local evaluation Parquet mixes packs).
+
+---
+
+## Decision 24 — Sealed holdout (anti-overfit)
+
+**Date:** July 16, 2026
+**Modules:** `src/presubmit.py`, `src/presubmit_cli.py`
+
+### Adopted Decision
+
+1. `create-holdout` writes a deterministic sealed split (`seal_sha256`).
+2. Holdout scoring requires `--reveal-holdout` once; a second reveal is
+   rejected with the first reveal timestamp.
+3. Seal is tamper-*evident*, not tamper-proof — peeking must be deliberate.
+
+---
+
+## Decision 25 — Pre-submit certificate + packaging/contracts
+
+**Date:** July 16, 2026
+**Modules:** `src/presubmit_cli.py`, `schemas/`, `pyproject.toml`,
+`docs/CONTRACTS.md`
+
+### Adopted Decision
+
+1. `certify` emits a one-page go/no-go with six checks; **NO-GO** only when
+   the grader would reject/mis-score the artifact; missing optional evidence
+   degrades to warnings.
+2. Budget check = wall time on the runner host (explicit non-goal: Kaggle
+   hardware parity).
+3. Public contracts freeze under `schemas/` + `docs/CONTRACTS.md` with an
+   additive 0.x compatibility policy.
+4. Console scripts (`atlas-*`) via `pip install -e .` coexist with
+   `python src/<entrypoint>.py`.
+
+### Alternatives considered
+
+- Hosted SaaS certificate service — rejected (local-first academic scope).
+- Auto-fetch ARC-AGI-2 in packaging — rejected (license / size).
+
+---
+
 ## Deferred Fields (historical note)
 
 > **Superseded on July 15, 2026:** the inference sprint implemented these

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://atlas.local/schemas/submission_kaggle.schema.json",
+  "title": "Kaggle-style ARC submission.json (ATLAS accepted shapes)",
+  "description": "Logical contract for submission_file artifacts. ATLAS also accepts prediction directories (one <task_id>.json per task). See docs/CONTRACTS.md.",
+  "type": "object",
+  "additionalProperties": {
+    "description": "Per-task key = task_id string",
+    "oneOf": [
+      {
+        "type": "array",
+        "description": "List of test-example predictions",
+        "items": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["attempt_1"],
+              "properties": {
+                "attempt_1": { "$ref": "#/$defs/grid" },
+                "attempt_2": { "$ref": "#/$defs/grid" }
+              },
+              "additionalProperties": true
+            },
+            { "$ref": "#/$defs/grid" }
+          ]
+        }
+      },
+      { "$ref": "#/$defs/grid" }
+    ]
+  },
+  "$defs": {
+    "grid": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9
+        }
+      }
+    }
+  }
+}
