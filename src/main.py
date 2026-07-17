@@ -451,7 +451,17 @@ def _warn_if_corpus_mixes_packs(output_dir: Path, current_pack_id: str) -> None:
     packs: set[str] = set()
     for part in parts:
         try:
-            chunk = pd.read_parquet(part, columns=["pack_id"])
+            # This check runs immediately before interpreter shutdown. Pandas'
+            # dataset reader may leave an Arrow scanner worker alive briefly,
+            # which can abort CPython during finalization on Linux CI. Reading
+            # the individual file synchronously avoids that shutdown race.
+            import pyarrow.parquet as pq
+
+            chunk = (
+                pq.ParquetFile(part)
+                .read(columns=["pack_id"], use_threads=False)
+                .to_pandas(use_threads=False)
+            )
         except (OSError, ValueError, KeyError):
             continue
         if "pack_id" not in chunk.columns or chunk.empty:
